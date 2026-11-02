@@ -18,7 +18,7 @@ Requires Node.js 22.13 or later, npm, and an installed/authenticated ACP executa
 
 ```sh
 git clone git@github.com:microsoft/amplifier-acp-teams.git
-cd acp-teams-adapter
+cd amplifier-acp-teams
 ./install.sh "$HOME/.local/share/acp-teams-adapter/my-agent"
 ```
 
