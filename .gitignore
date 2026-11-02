@@ -1,0 +1,14 @@
+node_modules/
+dist/
+private/
+.env
+*.log
+
+# Local installations and publication review material
+private/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db

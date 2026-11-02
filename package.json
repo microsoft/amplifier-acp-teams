@@ -1,0 +1,43 @@
+{
+  "name": "acp-teams-adapter",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "An independent Microsoft Teams conversation adapter for any ACP agent",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "acp-teams-adapter": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "docs/",
+    "ops/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@microsoft/teams.api": "2.1.1",
+    "@microsoft/teams.apps": "2.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@azure/msal-node": "7.1.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/microsoft/amplifier-acp-teams.git"
+  }
+}
