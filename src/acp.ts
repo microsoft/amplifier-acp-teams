@@ -10,7 +10,7 @@ type Json = Record<string, any>;
 export class AgentAuthenticationRequired extends Error {
   constructor() {
     super(
-      "Agent sign-in required. Sign in to the configured ACP agent on its host using the same service account, then reconnect. Teams does not run the agent's interactive sign-in flow.",
+      "Agent sign-in required. Sign in to the configured ACP agent on its host using the same service account, then reconnect. Supported agent sign-in steps appear in the connector owner's Questions view; terminal login remains a host setup step.",
     );
     this.name = "AgentAuthenticationRequired";
   }
@@ -21,8 +21,8 @@ export function authentication(init: Json) {
       ? v.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 200)
       : "";
   return {
-    profile: "acp-preauthenticated/1",
-    interactive: false,
+    profile: "acp-interactive-auth/1",
+    interactive: true,
     methods: (Array.isArray(init.authMethods) ? init.authMethods : [])
       .filter((m: unknown) => m !== null && typeof m === "object")
       .slice(0, 16)
@@ -46,6 +46,7 @@ export class AcpClient {
     { resolve: (v: Json) => void; reject: (e: Error) => void }
   >();
   onUpdate: (v: Json) => void = () => {};
+  onCancel: (id: unknown) => void = () => {};
   onRequest: (v: Json) => Promise<Json> = async (v) =>
     v.method === "session/request_permission"
       ? { outcome: { outcome: "cancelled" } }
@@ -134,7 +135,9 @@ export class AcpClient {
             });
         },
       );
-    } else if (v.method === "session/update") this.onUpdate(v.params);
+    } else if (v.method === "$/cancel_request")
+      this.onCancel(v.params?.requestId);
+    else if (v.method === "session/update") this.onUpdate(v.params);
     else if (v.id !== undefined) {
       const p = this.pending.get(v.id);
       if (p) {
@@ -173,11 +176,13 @@ export class AcpClient {
       else this.child.kill("SIGKILL");
     } catch {}
   }
-  async initialize() {
+  async initialize(interactive = false) {
     const init = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "acp-teams-adapter", version: "0.2.1" },
-      clientCapabilities: {},
+      clientInfo: { name: "acp-teams-adapter", version: "0.3.0" },
+      clientCapabilities: interactive
+        ? { elicitation: { form: {}, url: {} } }
+        : {},
     });
     ensure(init.protocolVersion === 1, "Unsupported ACP version");
     return init;
@@ -214,15 +219,104 @@ export async function runTurn(
   signal: AbortSignal,
 ): Promise<{ text: string; pass: boolean; files?: OutputFile[] }> {
   const client = new AcpClient(c, home, signal);
-  const timer = setTimeout(() => client.close(), c.acp.timeout_seconds * 1000);
+  const cancelQuestions = () => store.questions.cancelJob(job.id);
+  signal.addEventListener("abort", cancelQuestions, { once: true });
+  const timer = setTimeout(() => {
+    cancelQuestions();
+    client.close();
+  }, c.acp.timeout_seconds * 1000);
   let session = "";
   try {
-    const init = await client.initialize(),
+    const pendingQuestions = new Map<string, string>();
+    const question = async (request: Json) => {
+      const p = request.params ?? {};
+      const scope =
+        (session &&
+          p.sessionId === session &&
+          p.requestId === undefined &&
+          p.toolCallId === undefined) ||
+        (p.requestId !== undefined &&
+          client.pending.has(p.requestId) &&
+          p.sessionId === undefined &&
+          p.toolCallId === undefined);
+      ensure(scope, "Question is outside the current request or session");
+      const key = JSON.stringify(request.id);
+      ensure(!pendingQuestions.has(key), "Duplicate question");
+      const q = store.questions.request(job.id, p);
+      pendingQuestions.set(key, q.id);
+      try {
+        return await q.answer;
+      } finally {
+        pendingQuestions.delete(key);
+      }
+    };
+    client.onCancel = (id) => {
+      const q = pendingQuestions.get(JSON.stringify(id));
+      if (q)
+        try {
+          store.questions.answer(q, "cancel");
+        } catch {}
+    };
+    client.onRequest = async (request) => {
+      ensure(
+        request.method === "elicitation/create",
+        "Client capability not offered",
+      );
+      return question(request);
+    };
+    const init = await client.initialize(true),
       endpoint = endpointKey(c),
       prior = store.session(job.message.key, endpoint);
+    const setup = async (method: string, params: Json) => {
+      try {
+        return await client.request(method, params);
+      } catch (e) {
+        if (!(e instanceof AgentAuthenticationRequired)) throw e;
+        const offered = (
+          Array.isArray(init.authMethods) ? init.authMethods : []
+        )
+          .filter(
+            (m: Json) =>
+              (!m.type || m.type === "agent") &&
+              typeof m.id === "string" &&
+              m.id.length > 0 &&
+              m.id.length <= 200,
+          )
+          .slice(0, 16);
+        ensure(offered.length > 0, "Agent requires sign-in on its host");
+        const choice = store.questions.request(job.id, {
+          mode: "form",
+          message:
+            "The agent needs sign-in. Choose a method; credentials belong only on the provider page.",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              method_id: {
+                type: "string",
+                oneOf: offered.map((m: Json) => ({
+                  const: m.id,
+                  title: typeof m.name === "string" ? m.name : m.id,
+                })),
+              },
+            },
+            required: ["method_id"],
+          },
+        });
+        const answer = await choice.answer;
+        if (answer.action !== "accept") throw new AgentAuthenticationRequired();
+        try {
+          await client.request("authenticate", {
+            methodId: answer.content.method_id,
+          });
+          return await client.request(method, params);
+        } catch {
+          throw new AgentAuthenticationRequired();
+        }
+      }
+    };
     if (prior && init.agentCapabilities?.loadSession) {
       try {
-        await client.request("session/load", {
+        await setup("session/load", {
           sessionId: prior,
           cwd: c.acp.cwd,
           mcpServers: [],
@@ -233,7 +327,7 @@ export async function runTurn(
       }
     }
     if (!session) {
-      const created = await client.request("session/new", {
+      const created = await setup("session/new", {
         cwd: c.acp.cwd,
         mcpServers: [],
       });
@@ -277,6 +371,7 @@ export async function runTurn(
       }
     };
     client.onRequest = async (request) => {
+      if (request.method === "elicitation/create") return question(request);
       ensure(
         request.method === "session/request_permission" &&
           request.params?.sessionId === session,
@@ -383,6 +478,8 @@ export async function runTurn(
     throw e;
   } finally {
     clearTimeout(timer);
+    signal.removeEventListener("abort", cancelQuestions);
+    store.questions.cancelJob(job.id);
     client.close();
     store.db
       .prepare(

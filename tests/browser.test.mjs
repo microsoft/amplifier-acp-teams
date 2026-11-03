@@ -61,6 +61,12 @@ test(
           document.activeElement.id === "filter",
       );
       assert.equal(await page.locator("#token").inputValue(), "");
+      const question=service.store.questions.request('browser',{mode:'form',message:'Choose a count',requestedSchema:{type:'object',properties:{count:{type:'integer',minimum:1,maximum:3}},required:['count']}});
+      await page.locator('#page').selectOption('questions');await page.getByRole('heading',{name:'Choose a count'}).waitFor();
+      await page.locator('[data-field=count]').fill('2');await page.getByRole('button',{name:'Send answer',exact:true}).click();assert.deepEqual(await question.answer,{action:'accept',content:{count:2}});
+      const login=service.store.questions.request('browser',{mode:'url',message:'Open sign-in',url:'https://example.test/login',elicitationId:'external'});
+      await page.locator('#refresh').click();await page.getByRole('link',{name:'Open provider page'}).waitFor();assert.equal(page.context().pages().length,1);
+      await page.context().route('https://example.test/**',r=>r.fulfill({status:200,body:'Fixture'}));const popupPromise=page.context().waitForEvent('page');await page.getByRole('link',{name:'Open provider page'}).click();const popup=await popupPromise;await popup.waitForLoadState();assert.equal(await popup.evaluate(()=>window.opener),null);await popup.close();assert.deepEqual(await login.answer,{action:'accept'});
       mkdirSync("private", { recursive: true });
       await page.screenshot({
         path: "private/dashboard-desktop.png",

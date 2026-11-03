@@ -1,3 +1,4 @@
+import { Questions } from "./questions.js";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chmodSync } from "node:fs";
@@ -41,6 +42,7 @@ export interface Job {
   note: string;
 }
 export class Store {
+  questions = new Questions();
   db: DatabaseSync;
   constructor(home: string) {
     privateDir(home);

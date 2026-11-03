@@ -519,6 +519,9 @@ for line in sys.stdin:
       },
     );
     runtime.receive(a, reference(a));
+    await until(()=>store.questions.list().length===1);
+    store.questions.answer(store.questions.list()[0].id,'cancel');
+
     await until(
       () =>
         store.db
