@@ -95,7 +95,8 @@ export async function serve(home: string) {
         "content-security-policy":
           "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
       });
-      res.end(dashboard);
+      const name = config.label.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+      res.end(dashboard.replace("<title>Teams connection</title>", `<title>${name}: Teams Connector</title>`));
       return;
     }
     if (
