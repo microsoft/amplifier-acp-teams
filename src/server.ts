@@ -271,6 +271,23 @@ export async function serve(home: string) {
       json(res, 200, { items: store.history(key), bounded: true });
       return;
     }
+    if (path === "/api/v1/questions" && req.method === "GET") {
+      json(res, 200, { items: store.questions.list() });
+      return;
+    }
+    const question = path.match(
+      /^\/api\/v1\/questions\/([a-f0-9-]+)\/decision$/,
+    );
+    if (question && req.method === "POST") {
+      const v = await body(req);
+      store.questions.answer(question[1]!, v.action, v.content);
+      store.audit("question_owner_decision", {
+        id: question[1],
+        action: v.action,
+      });
+      json(res, 200, { ok: true });
+      return;
+    }
     if (path === "/api/v1/permissions" && req.method === "GET") {
       json(res, 200, { items: store.pendingPermissions() });
       return;
@@ -316,10 +333,12 @@ export async function serve(home: string) {
     }
     if (path === "/api/v1/check" && req.method === "POST") {
       ensure(!config.enabled, "Pause before checking the ACP endpoint");
-      try { json(res, 200, await check(config, home)); }
-      catch (error) {
-        if (error instanceof AgentAuthenticationRequired) { json(res, 409, {error:error.message,code:"agent_auth_required"}); }
-        else throw error;
+      try {
+        json(res, 200, await check(config, home));
+      } catch (error) {
+        if (error instanceof AgentAuthenticationRequired) {
+          json(res, 409, { error: error.message, code: "agent_auth_required" });
+        } else throw error;
       }
       return;
     }
@@ -360,14 +379,32 @@ export async function serve(home: string) {
         ensure(
           state &&
             Object.keys(state).every((k) =>
-              ["page", "conversation", "filter", "focus"].includes(k),
+              [
+                "page",
+                "conversation",
+                "filter",
+                "focus",
+                "question_drafts",
+              ].includes(k),
             ),
           "Unsupported view state",
         );
         ensure(
-          ["overview", "activity", "conversations", "permissions"].includes(
-            state.page,
-          ) &&
+          state.question_drafts === undefined ||
+            (state.question_drafts &&
+              typeof state.question_drafts === "object" &&
+              !Array.isArray(state.question_drafts) &&
+              JSON.stringify(state.question_drafts).length <= 32768),
+          "Invalid question drafts",
+        );
+        ensure(
+          [
+            "overview",
+            "activity",
+            "conversations",
+            "permissions",
+            "questions",
+          ].includes(state.page) &&
             (state.conversation === null ||
               /^[a-f0-9]{64}$/.test(state.conversation)) &&
             typeof state.filter === "string" &&

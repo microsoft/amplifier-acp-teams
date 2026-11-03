@@ -122,3 +122,23 @@ trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.
+
+## Owner questions and agent authentication
+
+The authenticated connector dashboard includes **Questions for owner**. Ordinary
+ACP agents can request validated primitive/enum forms or an explicit provider-page
+link. These responses use the connector owner's authority; they do not impersonate
+a Teams participant. No question contents, answers, or sign-in URLs are posted to
+the Teams room. `GET /api/v1/questions` and
+`POST /api/v1/questions/{id}/decision` expose the same operations to automation.
+View state includes the Questions page and ordinary form drafts.
+
+On AUTH_REQUIRED, supported agent methods can be chosen in the dashboard, then
+`authenticate` runs on the same connection and session setup retries once. No
+prompt is replayed. Terminal-only methods still need host sign-in. Questions are
+memory-only and cancel on stop, disconnect, expiry, or restart. Unsupported form
+constraints are rejected. Credentials belong only on the provider's sign-in page;
+opening that page does not certify that sign-in completed.
+
+Protocol and dashboard behavior is fixture-tested. Live tenant authentication,
+Teams delivery, and human interaction remain a separate deployment verification.
