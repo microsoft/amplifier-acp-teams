@@ -4,7 +4,6 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  type Config,
   ensure,
   load,
   ready,
