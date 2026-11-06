@@ -142,3 +142,9 @@ opening that page does not certify that sign-in completed.
 
 Protocol and dashboard behavior is fixture-tested. Live tenant authentication,
 Teams delivery, and human interaction remain a separate deployment verification.
+
+## ACP SDK integration
+
+ACP transport uses the official `@agentclientprotocol/sdk` 2.4.0. It owns framing, request IDs, correlation and cancellation. The connector retains Teams routing, permissions, child-process lifetime and a small transport observer for question scope; that observer does not allocate or correlate RPC IDs. Real SDK peer tests cover output order, concurrent extension requests, permissions, cancellation and disconnected processes. Live Microsoft 365 tenant validation remains separate.
+
+See the [SDK-first contract](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/protocol-sdk.v1-candidate.md).

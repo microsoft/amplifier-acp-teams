@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { Readable, Writable } from "node:stream";
+import * as acp from "@agentclientprotocol/sdk";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -38,13 +40,11 @@ export function authentication(init: Json) {
 
 export class AcpClient {
   child: ChildProcessWithoutNullStreams;
-  next = 0;
   closed = false;
-  buffer = Buffer.alloc(0);
-  pending = new Map<
-    number,
-    { resolve: (v: Json) => void; reject: (e: Error) => void }
-  >();
+  connection!: acp.ClientConnection;
+  // Scope evidence for questions, not an RPC response registry. IDs are
+  // observed from SDK-owned transport messages, never allocated here.
+  activeRequests = new Set<unknown>();
   onUpdate: (v: Json) => void = () => {};
   onCancel: (id: unknown) => void = () => {};
   onRequest: (v: Json) => Promise<Json> = async (v) =>
@@ -86,90 +86,77 @@ export class AcpClient {
     this.child.on("error", () => this.fail("Could not launch ACP command"));
     this.child.on("exit", () => this.fail("ACP process closed"));
     this.child.stdin.on("error", () => this.fail("ACP input closed"));
-    this.child.stdout.on("data", (chunk: Buffer) => {
-      if (this.closed) return;
-      this.buffer = Buffer.concat([this.buffer, chunk]);
-      if (this.buffer.length > 4 * 1024 * 1024) {
-        this.fail("ACP frame too large");
-        return;
-      }
-      let index: number;
-      while ((index = this.buffer.indexOf(10)) >= 0) {
-        const line = this.buffer.subarray(0, index);
-        this.buffer = this.buffer.subarray(index + 1);
-        try {
-          this.frame(JSON.parse(line.toString("utf8")));
-        } catch {
-          this.fail("Invalid ACP frame");
-        }
-      }
+    const stream = acp.ndJsonStream(
+      Writable.toWeb(this.child.stdin),
+      Readable.toWeb(this.child.stdout) as ReadableStream<Uint8Array>,
+      { maxMessageBytes: 4 * 1024 * 1024 },
+    );
+    const scopeTap = new TransformStream<acp.AnyMessage, acp.AnyMessage>({
+      transform: (message, controller) => {
+        if ("method" in message && "id" in message)
+          this.activeRequests.add(message.id);
+        controller.enqueue(message);
+      },
     });
+    void scopeTap.readable
+      .pipeTo(stream.writable)
+      .catch(() => this.fail("ACP input closed"));
+    const inbound = stream.readable.pipeThrough(
+      new TransformStream<acp.AnyMessage, acp.AnyMessage>({
+        transform: (message, controller) => {
+          if (!("method" in message) && "id" in message)
+            this.activeRequests.delete(message.id);
+          controller.enqueue(message);
+        },
+      }),
+    );
+    this.connection = acp
+      .client()
+      .onRequest("*", async ({ method, params, requestId, signal }) => {
+        const cancel = () => this.onCancel(requestId);
+        signal.addEventListener("abort", cancel, { once: true });
+        try {
+          return await this.onRequest({
+            jsonrpc: "2.0",
+            id: requestId,
+            method,
+            params,
+          });
+        } catch {
+          throw acp.RequestError.methodNotFound(method);
+        } finally {
+          signal.removeEventListener("abort", cancel);
+        }
+      })
+      .onNotification("*", ({ method, params }) => {
+        if (method === "session/update") this.onUpdate(params as Json);
+        else if (method === "$/cancel_request")
+          this.onCancel((params as Json)?.requestId);
+      })
+      .connect({ readable: inbound, writable: scopeTap.writable });
+    void this.connection.closed.then(() => this.close());
     signal?.addEventListener("abort", () => this.close(), { once: true });
     if (signal?.aborted) this.close();
   }
   fail(message: string) {
-    for (const p of this.pending.values()) p.reject(new Error(message));
-    this.pending.clear();
+    this.connection?.close(new Error(message));
     this.close();
   }
-  send(v: Json) {
+  async request(method: string, params: Json): Promise<Json> {
     ensure(!this.closed, "ACP process is closed");
-    this.child.stdin.write(JSON.stringify(v) + "\n");
-  }
-  frame(v: Json) {
-    ensure(v.jsonrpc === "2.0", "Invalid JSON-RPC");
-    if (v.method && v.id !== undefined) {
-      void this.onRequest(v).then(
-        (result) => {
-          if (!this.closed) this.send({ jsonrpc: "2.0", id: v.id, result });
-        },
-        () => {
-          if (!this.closed)
-            this.send({
-              jsonrpc: "2.0",
-              id: v.id,
-              error: {
-                code: -32601,
-                message: "Client capability not available",
-              },
-            });
-        },
-      );
-    } else if (v.method === "$/cancel_request")
-      this.onCancel(v.params?.requestId);
-    else if (v.method === "session/update") this.onUpdate(v.params);
-    else if (v.id !== undefined) {
-      const p = this.pending.get(v.id);
-      if (p) {
-        this.pending.delete(v.id);
-        if (v.error)
-          p.reject(
-            v.error.code === -32000
-              ? new AgentAuthenticationRequired()
-              : new Error("ACP request rejected"),
-          );
-        else p.resolve(v.result);
-      }
+    try {
+      return await this.connection.agent.request<Json>(method, params);
+    } catch (error) {
+      if (error instanceof acp.RequestError && error.code === -32000)
+        throw new AgentAuthenticationRequired();
+      throw new Error("ACP request rejected or connection closed");
     }
-  }
-  request(method: string, params: Json): Promise<Json> {
-    const id = ++this.next;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      try {
-        this.send({ jsonrpc: "2.0", id, method, params });
-      } catch (e) {
-        this.pending.delete(id);
-        reject(e);
-      }
-    });
   }
   close() {
     if (this.closed) return;
     this.closed = true;
-    for (const p of this.pending.values())
-      p.reject(new Error("ACP work stopped"));
-    this.pending.clear();
+    this.activeRequests.clear();
+    this.connection?.close();
     try {
       if (process.platform !== "win32" && this.child.pid)
         process.kill(-this.child.pid, "SIGKILL");
@@ -179,7 +166,7 @@ export class AcpClient {
   async initialize(interactive = false) {
     const init = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "acp-teams-adapter", version: "0.3.0" },
+      clientInfo: { name: "acp-teams-adapter", version: "0.4.0" },
       clientCapabilities: interactive
         ? { elicitation: { form: {}, url: {} } }
         : {},
@@ -236,7 +223,7 @@ export async function runTurn(
           p.requestId === undefined &&
           p.toolCallId === undefined) ||
         (p.requestId !== undefined &&
-          client.pending.has(p.requestId) &&
+          client.activeRequests.has(p.requestId) &&
           p.sessionId === undefined &&
           p.toolCallId === undefined);
       ensure(scope, "Question is outside the current request or session");
