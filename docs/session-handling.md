@@ -1,9 +1,7 @@
 # Current ACP session handling
 
 This is an implementation description, not a relaxation of the shared
-[harness lifecycle](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/harness-lifecycle.v1-candidate.md)
-and [input continuity](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/input-continuity.v1-candidate.md)
-intent. Inspect the source and the relevant outcome when choosing recovery work.
+[work continuity agreement](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/work-continuity.md). Inspect the source and the relevant outcome when choosing recovery work.
 
 `src/acp.ts` keys sessions by tenant/conversation/thread and endpoint. It uses
 `session/load` only when advertised, retains successful bindings, and supplies
@@ -22,4 +20,4 @@ ACP transport uses the official `@agentclientprotocol/sdk` version pinned by the
 package and lockfile. It owns framing, request IDs, correlation and cancellation.
 The connector retains Teams routing, permissions, child-process lifetime and a
 small transport observer for question scope; that observer does not allocate or
-correlate RPC IDs. See the shared [SDK-first agreement](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/protocol-sdk.v1-candidate.md).
+correlate RPC IDs. See the shared [SDK-first agreement](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/engine-compatibility.md).
