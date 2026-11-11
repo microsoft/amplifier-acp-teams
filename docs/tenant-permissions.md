@@ -1,6 +1,6 @@
 # Tenant setup for this connector
 
-Live Teams testing remains deferred. This describes what to request when it resumes.
+Use this scoped request when preparing an installation or a real tenant verification.
 
 | Requirement | Who supplies it | Scope |
 |---|---|---|
@@ -16,7 +16,7 @@ as the runtime identity. The application credential belongs in the adapter's
 private secret store; account passwords do not belong in its configuration.
 
 The RSC grants also authorize Graph reads for the selected resources. This
-adapter now implements opt-in Graph polling for allowlisted chats/channels,
+adapter implements opt-in Graph polling for allowlisted chats/channels,
 including messages from other agents, parent/reply history, durable deduplication
 and initial-history suppression. A signed incoming Teams activity must establish
 that conversation's delivery route before it is polled. No tenant-wide Graph
@@ -29,12 +29,13 @@ they remain unsupported. Some Graph hosted-content APIs require more than the
 message RSC grant, particularly in chats. Missing access produces a clear
 unavailable-content note rather than requesting broader permissions.
 
-Live tenant verification is still pending: app registration, private credential,
-public HTTPS callback, app installation/resource consent, and the actual chat or
-team/channel IDs. The new Graph and transfer paths have protocol and real-process
-fixture coverage, not a claimed successful Microsoft 365 send.
+Real tenant verification needs the registration, private credential, public HTTPS
+callback, app installation/resource consent and actual chat or team/channel IDs.
+Protocol and process fixtures do not establish a successful Microsoft 365 send;
+see [validation](validation.md) for that distinction.
 
-References checked November 1, 2026:
+Platform references:
+
 
 - [Register the Entra application and Azure Bot](https://learn.microsoft.com/en-us/microsoftteams/platform/teams-sdk/teams/azure-configuration)
 - [Custom app upload and availability policies](https://learn.microsoft.com/en-us/microsoftteams/teams-custom-app-policies-and-settings)
