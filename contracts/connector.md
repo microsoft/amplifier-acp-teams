@@ -40,4 +40,3 @@ opening that page does not certify that sign-in completed.
 
 Protocol and dashboard behavior is fixture-tested. Live tenant authentication,
 Teams delivery, and human interaction remain a separate deployment verification.
-
