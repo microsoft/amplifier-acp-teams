@@ -12,3 +12,8 @@ private/
 *.sqlite
 *.sqlite3
 *.db
+/target/
+/native-dist/
+/.node-cache/
+__pycache__/
+*.pyc

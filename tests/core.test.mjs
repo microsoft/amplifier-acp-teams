@@ -25,7 +25,7 @@ function setup() {
   c.teams.client_id = bot;
   c.teams.tenant_id = tenant;
   c.teams.conversations = ["room"];
-  c.acp.command = "/usr/bin/python3";
+  c.acp.command = (process.env.TEAMS_TEST_PYTHON || "python3");
   c.acp.args = [resolve("tests/acp-fixture.py")];
   c.acp.timeout_seconds = 5;
   return {

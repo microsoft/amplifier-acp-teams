@@ -48,7 +48,7 @@ function setup() {
     max_file_bytes: 2 * 1024 * 1024,
     download_hosts: ["tenant.sharepoint.com"],
   };
-  c.acp.command = "/usr/bin/python3";
+  c.acp.command = (process.env.TEAMS_TEST_PYTHON || "python3");
   c.acp.args = [resolve("tests/acp-fixture.py")];
   c.enabled = true;
   privateWrite(join(home, "secrets", "client-secret"), "private-oauth-secret");

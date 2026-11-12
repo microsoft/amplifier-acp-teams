@@ -3,14 +3,7 @@ import { PUBLIC } from "@microsoft/teams.api";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  ensure,
-  load,
-  ready,
-  readPrivate,
-  save,
-  validate,
-} from "./config.js";
+import { ensure, load, ready, readPrivate, save, validate } from "./config.js";
 import { Store } from "./store.js";
 import { GraphClient, GraphPoller } from "./graph.js";
 import {
@@ -24,6 +17,7 @@ import { body, json, Transport } from "./transport.js";
 import { AgentAuthenticationRequired, check } from "./acp.js";
 import { manifest } from "./manifest.js";
 import { dashboard } from "./ui.js";
+import { NativeAuth, nativeSettings } from "./native.js";
 
 function authenticate(received: string | undefined, expected: string) {
   const value = received?.startsWith("Bearer ") ? received.slice(7) : "";
@@ -63,6 +57,7 @@ export async function serve(home: string) {
   ]);
   const store = new Store(home);
   store.recover();
+  const native = new NativeAuth(home, config, store, token);
   let app: App | undefined;
   let engine: Runtime;
   let authReady = false;
@@ -86,6 +81,14 @@ export async function serve(home: string) {
   const transport = new Transport(config.server.bind, async (req, res) => {
     const url = new URL(req.url ?? "/", "http://local"),
       path = url.pathname;
+    if (
+      !["/healthz", "/about", "/privacy", "/terms"].includes(path) &&
+      !native.allowed(req)
+    ) {
+      json(res, 403, { error: "Use the saved local connector address" });
+      return;
+    }
+    if (await native.route(req, res, url)) return;
     if (req.method === "GET" && path === "/") {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
@@ -94,8 +97,16 @@ export async function serve(home: string) {
         "content-security-policy":
           "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
       });
-      const name = config.label.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-      res.end(dashboard.replace("<title>Teams connection</title>", `<title>${name}: Teams Connector</title>`));
+      const name = config.label
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+      res.end(
+        dashboard.replace(
+          "<title>Teams connection</title>",
+          `<title>${name}: Teams Connector</title>`,
+        ),
+      );
       return;
     }
     if (
@@ -114,7 +125,10 @@ export async function serve(home: string) {
       );
       return;
     }
-    if (!authenticate(req.headers.authorization, token)) {
+    if (
+      !authenticate(req.headers.authorization, token) &&
+      !native.authorize(req)
+    ) {
       json(res, 401, { error: "Supply the connector management token" });
       return;
     }
@@ -130,7 +144,7 @@ export async function serve(home: string) {
     if (path === "/api/v1/descriptor" && req.method === "GET") {
       json(res, 200, {
         kind: "acp-teams-adapter",
-        version: "0.2.1",
+        version: "0.5.0",
         id: config.id,
         api: "/api/v1",
         protocol: "ACP 1 over stdio",
@@ -162,6 +176,7 @@ export async function serve(home: string) {
       if (req.method === "PUT") {
         ensure(!config.enabled, "Pause the connection before editing");
         const value = validate(await body(req));
+        nativeSettings(home, value);
         ensure(
           value.revision === config.revision,
           "Configuration changed; reload before saving",
@@ -197,6 +212,28 @@ export async function serve(home: string) {
               config.teams.tenant_id,
             ]),
         });
+        return;
+      }
+    }
+    if (path === "/api/v1/startup" && native.settings) {
+      if (req.method === "GET") {
+        json(
+          res,
+          200,
+          existsSync(join(home, "startup.json"))
+            ? JSON.parse(readFileSync(join(home, "startup.json"), "utf8"))
+            : { configured: false },
+        );
+        return;
+      }
+      if (req.method === "POST") {
+        const v = await body(req, 1024);
+        ensure(
+          Object.keys(v).length === 1 && typeof v.enabled === "boolean",
+          "Choose startup on or off",
+        );
+        await native.startup(v.enabled);
+        json(res, 200, { configured: v.enabled });
         return;
       }
     }

@@ -1,0 +1,81 @@
+name: Native Teams packages
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            executable: acp-teams-adapter
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            executable: acp-teams-adapter
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            executable: acp-teams-adapter
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            executable: acp-teams-adapter
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            executable: acp-teams-adapter.exe
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            executable: acp-teams-adapter.exe
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.5'
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Native toolchain and fixture interpreter
+        run: |
+          rustup toolchain install 1.93.0 --profile minimal --component rustfmt --component clippy
+          rustup +1.93.0 target add "$CARGO_BUILD_TARGET"
+          python -c 'import sys; print("TEAMS_TEST_PYTHON="+sys.executable)' >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native-launcher -> ../target
+      - run: npm ci --ignore-scripts
+      - run: npm run check && npm test
+      - run: cargo +1.93.0 fmt --manifest-path native-launcher/Cargo.toml --check
+      - run: cargo +1.93.0 test --manifest-path native-launcher/Cargo.toml --locked
+      - run: cargo +1.93.0 clippy --manifest-path native-launcher/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo +1.93.0 build --manifest-path native-launcher/Cargo.toml --release --locked
+      - name: Package fixed private Node and production dependencies
+        run: python scripts/package-native.py --binary "target/${{ matrix.target }}/release/${{ matrix.executable }}" --target "${{ matrix.target }}" --output native-dist --cache .node-cache
+      - name: Actual native launch, private account, restart and no developer tools
+        run: |
+          package=$(python -c 'import pathlib; print(next(p for p in pathlib.Path("native-dist").iterdir() if p.name.endswith((".tar.gz", ".zip"))))')
+          python tests/native-launch.py --package "$package" --result native-dist/launch-${{ matrix.target }}.json
+      - name: Actual local browser first-account journey
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          npm install --prefix private/browser --no-save playwright@1.58.2
+          private/browser/node_modules/.bin/playwright install --with-deps chromium
+          export PLAYWRIGHT_MODULE="$GITHUB_WORKSPACE/private/browser/node_modules/playwright/index.mjs"
+          package=$(python -c 'import pathlib; print(next(p for p in pathlib.Path("native-dist").iterdir() if p.name.endswith(".tar.gz")))')
+          python tests/native-launch.py --package "$package" --browser --result native-dist/browser.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-teams-${{ matrix.target }}
+          path: native-dist/*
+          if-no-files-found: error

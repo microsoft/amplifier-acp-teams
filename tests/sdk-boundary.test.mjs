@@ -17,7 +17,8 @@ async function peer(run) {
     await client.request("session/new", { cwd: home, mcpServers: [] });
     await run(client);
   } finally {
-    client.close();
+    await client.close();
+    assert(client.child.exitCode !== null || client.child.signalCode !== null);
     rmSync(home, { recursive: true, force: true });
   }
 }

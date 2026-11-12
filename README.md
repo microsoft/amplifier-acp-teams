@@ -1,5 +1,9 @@
 # ACP Teams Adapter
 
+Native package setup for Windows, macOS and Linux is described in
+[Native installation](docs/native-installation.md). It starts paused and keeps
+Teams authorization separate from the local app account.
+
 Bring an independently configured agent into Microsoft Teams personal chats,
 group chats and channel threads. Teams remains the source of its conversations;
 the chosen ACP endpoint supplies the agent.
