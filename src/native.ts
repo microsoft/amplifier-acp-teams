@@ -99,11 +99,19 @@ export class NativeAuth {
   }
   allowed(req: IncomingMessage) {
     if (!this.settings) return true;
+    const publicNavigation =
+      req.method === "GET" &&
+      req.url === "/" &&
+      req.headers["sec-fetch-mode"] === "navigate" &&
+      req.headers["sec-fetch-dest"] === "document";
     return (
       req.headers.host === new URL(this.settings.origin).host &&
       (!req.headers.origin || req.headers.origin === this.settings.origin) &&
       (!req.headers["sec-fetch-site"] ||
-        ["same-origin", "none"].includes(String(req.headers["sec-fetch-site"])))
+        ["same-origin", "none"].includes(
+          String(req.headers["sec-fetch-site"]),
+        ) ||
+        publicNavigation)
     );
   }
   cookieName() {

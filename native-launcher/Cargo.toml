@@ -5,10 +5,12 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 [dependencies]
-amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-constellation", rev = "b65ed668c7df2ac4df3b15198bf8fb4db44abbec", features = ["local-auth"] }
+amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-constellation", rev = "774dcedfde21dfec133cd3c497fd6177e9cdfff6", features = ["local-auth"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fs2 = "0.4"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
 ctrlc = { version = "3", features = ["termination"] }
 libc = "0.2"
 rand = "0.8"

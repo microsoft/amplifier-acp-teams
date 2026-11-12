@@ -17,6 +17,7 @@ import { body, json, Transport } from "./transport.js";
 import { AgentAuthenticationRequired, check } from "./acp.js";
 import { manifest } from "./manifest.js";
 import { dashboard } from "./ui.js";
+import { matchingUpdate, updateHeld, updateIdle } from "./native_update.js";
 import { NativeAuth, nativeSettings } from "./native.js";
 
 function authenticate(received: string | undefined, expected: string) {
@@ -63,6 +64,30 @@ export async function serve(home: string) {
   let authReady = false;
   const graph = new GraphClient(home, () => config);
   let poller: GraphPoller;
+  let closeForUpdate: (() => Promise<void>) | undefined;
+  function hold(value: boolean) {
+    transport.updateHold = value;
+    engine.stopped = value;
+    poller.stopped = value;
+  }
+  function idle() {
+    const pending = store.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM jobs WHERE status IN ('pending','running','sending')",
+      )
+      .get() as { n: number };
+    const files = store.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM file_deliveries WHERE status='uploading'",
+      )
+      .get() as { n: number };
+    return updateIdle(
+      engine.active.size,
+      poller.busy,
+      transport.activeMutations,
+      pending.n + files.n,
+    );
+  }
   const sdkLog: any = {
     debug() {},
     trace() {},
@@ -215,6 +240,40 @@ export async function serve(home: string) {
         return;
       }
     }
+    if (path.startsWith("/api/v1/native-update/") && native.settings) {
+      if (req.method === "GET" && path.endsWith("/readiness")) {
+        json(res, 200, { id: config.id, idle: idle() });
+        return;
+      }
+      if (req.method === "POST" && path.endsWith("/stop")) {
+        matchingUpdate(home, config.id, await body(req, 1024), [
+          "stopping",
+          "rolling_back",
+        ]);
+        // All checks and the admission hold happen synchronously before yielding.
+        if (!idle()) {
+          json(res, 200, { id: config.id, accepted: false, reason: "busy" });
+          return;
+        }
+        ensure(closeForUpdate, "Native shutdown is unavailable");
+        hold(true);
+        json(res, 200, { id: config.id, accepted: true });
+        setTimeout(
+          () => void closeForUpdate!().then(() => process.exit(0)),
+          150,
+        ).unref();
+        return;
+      }
+      if (req.method === "POST" && path.endsWith("/finish")) {
+        matchingUpdate(home, config.id, await body(req, 1024), [
+          "applied",
+          "rolled_back",
+        ]);
+        hold(false);
+        json(res, 200, { id: config.id, ready: true });
+        return;
+      }
+    }
     if (path === "/api/v1/startup" && native.settings) {
       if (req.method === "GET") {
         json(
@@ -240,6 +299,9 @@ export async function serve(home: string) {
     if (path === "/api/v1/status" && req.method === "GET") {
       json(res, 200, {
         id: config.id,
+        version: "0.5.0",
+        pid: process.pid,
+        launcher_pid: Number(process.env.ACP_TEAMS_LAUNCHER_PID) || null,
         label: config.label,
         enabled: config.enabled,
         teams_configured: authReady,
@@ -505,6 +567,7 @@ export async function serve(home: string) {
     () => config,
     (message, path, raw) => hydrateGraph(config, message, path, raw, graph),
   );
+  if (native.settings && updateHeld(home, config.id)) hold(true);
   try {
     if (
       config.teams.client_id &&
@@ -551,19 +614,20 @@ export async function serve(home: string) {
     release();
     throw e;
   }
+  closeForUpdate = async () => {
+    config.enabled = false;
+    await poller.close();
+    await engine.close();
+    await transport.stop();
+    store.close();
+    release();
+  };
   return {
     port: transport.address(),
     store,
     engine,
     app,
     transport,
-    close: async () => {
-      config.enabled = false;
-      await poller.close();
-      await engine.close();
-      await transport.stop();
-      store.close();
-      release();
-    },
+    close: closeForUpdate,
   };
 }

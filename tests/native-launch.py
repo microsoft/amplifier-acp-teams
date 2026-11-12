@@ -62,6 +62,9 @@ def run(package,result,browser=False):
    code,_,view=request(base,'/api/v1/views',{},auth);assert code in (200,201);checks.append('existing browser API requires session and CSRF; account create-only')
    code,_,status=request(base,'/api/v1/status',headers=auth);assert code==200 and status['enabled']is False and status['teams_configured']is False and status['active']==0
    code,_,startup=request(base,'/api/v1/startup',headers=auth);assert code==200 and startup['configured']is False;checks.append('no startup service or external agent activated')
+   if os.name=='nt':
+    subprocess.run([str(home/'runtime/node.exe'),str(Path(__file__).with_name('native-acp-lifetime.mjs')),str(home/'bin/acp-teams-adapter.exe'),base],check=True,timeout=30)
+    checks.append('individual native ACP close stops its immediate grandchildren while Teams app stays available')
    reopened=subprocess.run([str(binary),'--home',str(home),'--no-browser'],env=env,capture_output=True,text=True,encoding='utf8',timeout=20);assert reopened.returncode==0,reopened.stderr;assert(home/'adapter.json').read_bytes()==config;checks.append('reopen proves same listener without duplicate process or config replacement')
    code,_,_=request(base,'/auth/logout',{},auth);assert code==200
    code,_,_=request(base,'/api/v1/status',headers=auth);assert code==401;checks.append('signout revokes only local browser session')

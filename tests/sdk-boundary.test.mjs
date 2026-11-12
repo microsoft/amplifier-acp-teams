@@ -101,3 +101,27 @@ test(
     });
   },
 );
+
+test("supervised ACP close requires a successful supervisor terminal", async () => {
+  // This tests reported supervisor exit semantics, not Windows Job containment.
+  // The extracted-package Windows fixture separately proves descendant cleanup.
+  const home = mkdtempSync(join(tmpdir(), "teams-supervisor-exit-"));
+  try {
+    const config = initialize(home);
+    for (const exit of [0, 17]) {
+      config.acp.command = process.execPath;
+      config.acp.args = [
+        "-e",
+        `process.stdin.resume();process.stdin.on('end',()=>process.exit(${exit}));`,
+      ];
+      const client = new AcpClient(config, home);
+      client.supervised = true;
+      const stopped = client.close();
+      if (exit === 0) await stopped;
+      else await assert.rejects(stopped, /stop was not confirmed/);
+      assert.equal(client.child.exitCode, exit);
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
