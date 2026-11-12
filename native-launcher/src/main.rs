@@ -141,6 +141,11 @@ fn run(cli: Cli) -> Result<()> {
     } else {
         "bin/acp-teams-adapter"
     });
+    // Install termination handling before the child can expose its endpoint.
+    // A caller may close the app as soon as that endpoint becomes reachable.
+    let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let signal = stopping.clone();
+    ctrlc::set_handler(move || signal.store(true, std::sync::atomic::Ordering::SeqCst))?;
     let mut command = Command::new(node(&home));
     command
         .arg(home.join("app/dist/cli.js"))
@@ -175,6 +180,11 @@ fn run(cli: Cli) -> Result<()> {
     }
     let mut live = false;
     for _ in 0..100 {
+        if stopping.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("Teams Connector closed during startup; saved state was preserved");
+        }
         if let Some(status) = child.try_wait()? {
             anyhow::bail!("Teams Connector stopped during startup ({status})");
         }
@@ -196,9 +206,6 @@ fn run(cli: Cli) -> Result<()> {
         let _ = child.wait();
         return Err(e);
     }
-    let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let signal = stopping.clone();
-    ctrlc::set_handler(move || signal.store(true, std::sync::atomic::Ordering::SeqCst))?;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
@@ -322,7 +329,12 @@ fn create(home: &Path) -> Result<()> {
     fs::create_dir_all(parent)?;
     let stage = parent.join(format!(".teams-setup-{}", uuid::Uuid::new_v4()));
     platform::private_dir(&stage)?;
-    for (name, _) in manifest["files"].as_object().unwrap() {
+    let files = manifest["files"].as_object().unwrap();
+    eprintln!(
+        "Preparing the private Teams runtime ({} files)",
+        files.len()
+    );
+    for (index, (name, _)) in files.iter().enumerate() {
         let dest = stage.join(name);
         platform::private_dir(dest.parent().context("Missing file parent")?)?;
         platform::private_create(&dest, &fs::read(source.join(name))?)?;
@@ -332,6 +344,9 @@ fn create(home: &Path) -> Result<()> {
             if name == "runtime/node" {
                 fs::set_permissions(&dest, fs::Permissions::from_mode(0o700))?;
             }
+        }
+        if (index + 1) % 1000 == 0 {
+            eprintln!("Prepared {} of {} runtime files", index + 1, files.len());
         }
     }
     platform::private_create(

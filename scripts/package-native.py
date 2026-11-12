@@ -27,7 +27,7 @@ def package(binary,target,output,cache):
    (content/'Info.plist').write_bytes(plistlib.dumps({'CFBundleName':'Teams Connector','CFBundleDisplayName':'Teams Connector','CFBundleIdentifier':'com.microsoft.constellation.teams','CFBundleExecutable':'acp-teams-adapter','CFBundleVersion':version,'CFBundleShortVersionString':version,'CFBundlePackageType':'APPL','LSMinimumSystemVersion':'11.0','LSUIElement':True}))
   else:binroot=stage;resources=stage
   exe='acp-teams-adapter.exe' if windows else 'acp-teams-adapter';shutil.copyfile(binary,binroot/exe);(binroot/exe).chmod(0o755)
-  node=support.prepare(kind,cache,resources/'runtime');check.inspect(Path(node['executable']).read_bytes(),binary_target)
+  node=support.prepare(kind,cache,resources/'runtime');check.inspect(Path(node['executable']).read_bytes(),binary_target,max_pe_bytes=256*1024*1024)
   actual=subprocess.check_output([node['executable'],'--version'],text=True).strip()
   if actual!='v'+node['version']:raise ValueError('Wrong bundled Node version')
   if mac:

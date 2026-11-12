@@ -25,20 +25,24 @@ def run(package,result,browser=False):
   env={k:v for k,v in os.environ.items()if not k.upper().startswith(('TEAMS_','OPENAI_','ANTHROPIC_','AZURE_','GOOGLE_','AMPLIFIER_','NODE_','ACP_'))};env['PATH']=str(root/'no-tools')
   def start():
    log=open(root/'server.log','ab');p=subprocess.Popen([str(binary),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env)
-   for _ in range(900):
+   deadline=time.monotonic()+180
+   while time.monotonic()<deadline:
     if p.poll() is not None:raise AssertionError((root/'server.log').read_text(encoding='utf8',errors='replace')[-2000:])
     try:
      settings=json.loads((home/'native.json').read_text(encoding='utf8'));base=settings['origin'];status,_,_=request(base,'/auth/session')
      if status==200:return p,log,base
     except(OSError,ValueError):pass
     time.sleep(.1)
-   p.kill();p.wait();log.close();raise AssertionError('Native app did not become ready: '+(root/'server.log').read_text(encoding='utf8',errors='replace')[-4000:])
+   p.kill();p.wait();log.close();raise AssertionError('Native app did not become ready after 180 seconds: '+(root/'server.log').read_text(encoding='utf8',errors='replace')[-4000:])
   def stop(p,log,base):
    p.terminate();p.wait(timeout=20);log.close()
    for _ in range(60):
     try:request(base,'/auth/session');time.sleep(.05)
     except OSError:break
    else:raise AssertionError('Child server survived native launcher termination')
+  p,log,base=start()
+  stop(p,log,base)
+  checks.append('immediate close after endpoint readiness leaves no child server')
   p,log,base=start()
   try:
    config=(home/'adapter.json').read_bytes();c=json.loads(config);assert c['enabled'] is False and c['teams']['client_id']=='' and c['acp']['command']=='';checks.append('fresh package stays paused without tenant, agent or model')

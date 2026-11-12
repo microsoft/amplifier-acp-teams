@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/microsoft/amplifier-constellation-runtime",
-  "commit": "078712175bccecd9b656eb0cc6ac29bcba6d0867",
+  "commit": "1cdfb3bc48f9e4a5cf8ad0d6d6e48e6d668e4431",
   "path": "scripts/native_binary.py",
-  "sha256": "70a74f4de1503c599e59ac3408ad21377c614d1b20c7841854d5957bc6ec342b"
+  "sha256": "d6dc8cdce7c752b10a7e4a239d53b66b40370a6f69434a4272ad7abca5137dc1"
 }
