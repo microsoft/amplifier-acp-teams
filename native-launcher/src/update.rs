@@ -65,7 +65,7 @@ fn saved(home: &Path) -> Result<Value> {
     optional_saved(home)?.context("No prepared update")
 }
 fn save(home: &Path, j: &Value) -> Result<()> {
-    platform::private_write(&home.join("native-update.json"), &serde_json::to_vec(j)?)
+    platform::private_write_data(&home.join("native-update.json"), &serde_json::to_vec(j)?)
 }
 fn phase(home: &Path, j: &mut Value, value: &str) -> Result<()> {
     j["phase"] = json!(value);
@@ -810,6 +810,28 @@ fn validate_launch_with_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn journal_publication_keeps_open_reader_on_its_original_snapshot() {
+        use std::io::Read;
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let mut j = json!({"schema":1,"request_id":uuid::Uuid::new_v4().to_string(),"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"stopping","candidate":{},"previous":{},"protected":{}});
+        save(home, &j).unwrap();
+        let before = fs::read(home.join("native-update.json")).unwrap();
+        let mut reader = File::open(home.join("native-update.json")).unwrap();
+        phase(home, &mut j, "swapping").unwrap();
+        assert_eq!(saved(home).unwrap(), j);
+        let mut retained = Vec::new();
+        reader.read_to_end(&mut retained).unwrap();
+        assert_eq!(
+            retained, before,
+            "An active reader retains one complete prior snapshot"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&retained).unwrap()["phase"],
+            "stopping"
+        );
+    }
     #[test]
     fn late_launch_is_rejected_after_recovery_changes_phase() {
         let temp = tempfile::tempdir().unwrap();
