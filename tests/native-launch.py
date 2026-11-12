@@ -57,7 +57,9 @@ function AccountSid([string]$account) {
  return ([Security.Principal.NTAccount]::new($account)).Translate([Security.Principal.SecurityIdentifier]).Value
 }
 Mark 'before-service'
-$s = New-Object -ComObject Schedule.Service
+$serviceType = [Type]::GetTypeFromProgID('Schedule.Service',$true)
+Mark 'before-com-activation'
+$s = [Activator]::CreateInstance($serviceType)
 Mark 'before-connect'
 $s.Connect()
 $t = $null
@@ -68,7 +70,7 @@ try { $t = $folder.GetTask($env:TEAMS_FIXTURE_TASK) }
 catch {
  Mark 'query-exception'
  $e = $_.Exception
- $seen = New-Object 'System.Collections.Generic.List[object]'
+ $seen = [System.Collections.Generic.List[object]]::new()
  for ($i=0; $i -lt 12; $i++) {
   foreach ($old in $seen) { if ([Object]::ReferenceEquals($old,$e)) { throw 'Startup inspection exception cycle' } }
   $seen.Add($e)
