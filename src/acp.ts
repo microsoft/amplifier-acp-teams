@@ -41,6 +41,8 @@ export function authentication(init: Json) {
 export class AcpClient {
   child: ChildProcessWithoutNullStreams;
   closed = false;
+  private stopped: Promise<void>;
+  private closing?: Promise<void>;
   connection!: acp.ClientConnection;
   // Scope evidence for questions, not an RPC response registry. IDs are
   // observed from SDK-owned transport messages, never allocated here.
@@ -81,6 +83,9 @@ export class AcpClient {
       shell: false,
       detached: process.platform !== "win32",
     });
+    this.stopped = new Promise<void>((resolve) =>
+      this.child.once("close", () => resolve()),
+    );
     // Agent/provider stderr can contain credentials or prompts. Never forward it.
     this.child.stderr.resume();
     this.child.on("error", () => this.fail("Could not launch ACP command"));
@@ -134,13 +139,19 @@ export class AcpClient {
           this.onCancel((params as Json)?.requestId);
       })
       .connect({ readable: inbound, writable: scopeTap.writable });
-    void this.connection.closed.then(() => this.close());
-    signal?.addEventListener("abort", () => this.close(), { once: true });
-    if (signal?.aborted) this.close();
+    void this.connection.closed.then(() => this.close()).catch(() => {});
+    signal?.addEventListener(
+      "abort",
+      () => {
+        void this.close().catch(() => {});
+      },
+      { once: true },
+    );
+    if (signal?.aborted) void this.close().catch(() => {});
   }
   fail(message: string) {
     this.connection?.close(new Error(message));
-    this.close();
+    void this.close().catch(() => {});
   }
   async request(method: string, params: Json): Promise<Json> {
     ensure(!this.closed, "ACP process is closed");
@@ -152,21 +163,32 @@ export class AcpClient {
       throw new Error("ACP request rejected or connection closed");
     }
   }
-  close() {
-    if (this.closed) return;
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
     this.closed = true;
     this.activeRequests.clear();
+    this.closing = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("ACP process stop was not confirmed")),
+        5000,
+      );
+      void this.stopped.then(() => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
     this.connection?.close();
     try {
       if (process.platform !== "win32" && this.child.pid)
         process.kill(-this.child.pid, "SIGKILL");
       else this.child.kill("SIGKILL");
     } catch {}
+    return this.closing;
   }
   async initialize(interactive = false) {
     const init = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "acp-teams-adapter", version: "0.4.0" },
+      clientInfo: { name: "acp-teams-adapter", version: "0.5.0" },
       clientCapabilities: interactive
         ? { elicitation: { form: {}, url: {} } }
         : {},
@@ -195,7 +217,7 @@ export async function check(c: Config, home: string) {
     };
   } finally {
     clearTimeout(timeout);
-    client.close();
+    await client.close();
   }
 }
 export async function runTurn(
@@ -210,7 +232,7 @@ export async function runTurn(
   signal.addEventListener("abort", cancelQuestions, { once: true });
   const timer = setTimeout(() => {
     cancelQuestions();
-    client.close();
+    void client.close().catch(() => {});
   }, c.acp.timeout_seconds * 1000);
   let session = "";
   try {
@@ -467,7 +489,7 @@ export async function runTurn(
     clearTimeout(timer);
     signal.removeEventListener("abort", cancelQuestions);
     store.questions.cancelJob(job.id);
-    client.close();
+    await client.close();
     store.db
       .prepare(
         "UPDATE permissions SET status='cancelled' WHERE job=? AND status='pending'",
