@@ -743,31 +743,57 @@ pub fn validate_launch(home: &Path) -> Result<()> {
         nonce.as_deref(),
     )
 }
+fn launch_binding(
+    j: &Value,
+    request: &str,
+    phase_expected: Option<&str>,
+    nonce: Option<&str>,
+) -> bool {
+    j["request_id"] == request
+        && j["phase"].as_str() == phase_expected
+        && matches!(phase_expected, Some("starting" | "rollback_starting"))
+        && nonce.is_some_and(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+        && j["launch_nonce"].as_str() == nonce
+}
 fn validate_launch_request(
     home: &Path,
     request: Option<&str>,
     phase_expected: Option<&str>,
     nonce: Option<&str>,
 ) -> Result<()> {
+    validate_launch_with_hash(home, request, phase_expected, nonce, || sha(&binary(home)))
+}
+fn validate_launch_with_hash(
+    home: &Path,
+    request: Option<&str>,
+    phase_expected: Option<&str>,
+    nonce: Option<&str>,
+    hash: impl FnOnce() -> Result<String>,
+) -> Result<()> {
     let j = optional_saved(home)?;
     if let Some(request) = request {
         let j = j.context("No update owns this launch")?;
         ensure!(
-            j["request_id"] == request
-                && j["phase"].as_str() == phase_expected
-                && matches!(phase_expected, Some("starting" | "rollback_starting"))
-                && nonce.is_some_and(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
-                && j["launch_nonce"].as_str() == nonce,
+            launch_binding(&j, request, phase_expected, nonce),
             "Update launch was superseded"
         );
-        let expected = if phase_expected == Some("starting") {
-            &j["candidate"]
+        let key = if phase_expected == Some("starting") {
+            "candidate"
         } else {
-            &j["previous"]
+            "previous"
         };
+        let digest = hash()?;
         ensure!(
-            sha(&binary(home))? == expected["launcher_sha256"],
+            digest == j[key]["launcher_sha256"],
             "Update launch bytes changed"
+        );
+        // A recovery can invalidate this launch while a large executable is read.
+        let latest = saved(home)?;
+        ensure!(
+            launch_binding(&latest, request, phase_expected, nonce)
+                && latest["installation_id"] == j["installation_id"]
+                && latest[key]["launcher_sha256"] == digest,
+            "Update launch was superseded during verification"
         );
     } else if let Some(j) = j {
         ensure!(
@@ -826,6 +852,25 @@ mod tests {
                 .is_err(),
             "A stale child must not reuse a later rollback's launch permission"
         );
+    }
+    #[test]
+    fn launch_rechecks_nonce_after_executable_verification() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        platform::private_dir(&home.join("bin")).unwrap();
+        fs::write(binary(home), b"installed").unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let nonce = random();
+        let digest = sha(&binary(home)).unwrap();
+        let mut j = json!({"schema":1,"request_id":id,"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"starting","launch_nonce":nonce,"candidate":{"launcher_sha256":digest},"previous":{},"protected":{}});
+        save(home, &j).unwrap();
+        let result =
+            validate_launch_with_hash(home, Some(&id), Some("starting"), Some(&nonce), || {
+                j["launch_nonce"] = json!(random());
+                save(home, &j)?;
+                Ok(digest.clone())
+            });
+        assert!(result.is_err());
     }
     #[test]
     fn invalid_existing_journal_never_becomes_a_fresh_installation() {

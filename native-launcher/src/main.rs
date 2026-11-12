@@ -181,6 +181,9 @@ fn run(cli: Cli) -> Result<()> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
     }
+    // Bundle hashing can outlast a recovery decision; re-read the same launch
+    // receipt while service.lock is still held, before the server opens state.
+    update::validate_launch(&home)?;
     let mut child = command.spawn()?;
     #[cfg(windows)]
     let _job = match ProcessJob::attach(&child) {
