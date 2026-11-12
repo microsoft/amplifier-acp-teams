@@ -49,20 +49,38 @@ def observe_startup(root,home,label,require_trigger_owner=True):
   # Fixed inline code avoids changing or bypassing ordinary script-file policy.
   # Only the fixture UUID and output path vary, through environment variables.
   script=r'''$ErrorActionPreference = 'Stop'
+function Mark([string]$phase) { [Console]::Error.WriteLine('startup-inspection: ' + $phase); [Console]::Error.Flush() }
+Mark 'script-entered'
 function AccountSid([string]$account) {
  if ([string]::IsNullOrEmpty($account)) { return $null }
  if ($account.StartsWith('S-1-')) { return ([Security.Principal.SecurityIdentifier]::new($account)).Value }
  return ([Security.Principal.NTAccount]::new($account)).Translate([Security.Principal.SecurityIdentifier]).Value
 }
+Mark 'before-service'
 $s = New-Object -ComObject Schedule.Service
+Mark 'before-connect'
 $s.Connect()
 $t = $null
-try { $t = $s.GetFolder('\').GetTask($env:TEAMS_FIXTURE_TASK) }
+Mark 'before-folder'
+$folder = $s.GetFolder('\')
+Mark 'before-query'
+try { $t = $folder.GetTask($env:TEAMS_FIXTURE_TASK) }
 catch {
+ Mark 'query-exception'
  $e = $_.Exception
- while ($e.InnerException) { $e = $e.InnerException }
+ $seen = New-Object 'System.Collections.Generic.List[object]'
+ for ($i=0; $i -lt 12; $i++) {
+  foreach ($old in $seen) { if ([Object]::ReferenceEquals($old,$e)) { throw 'Startup inspection exception cycle' } }
+  $seen.Add($e)
+  Mark ('exception-' + $i + '-hresult-' + $e.HResult)
+  if ($null -eq $e.InnerException) { break }
+  if ($i -eq 11) { throw 'Startup inspection exception depth exceeded' }
+  $e = $e.InnerException
+ }
  if ($e.HResult -ne -2147024894) { throw }
+ Mark 'confirmed-absent'
 }
+Mark 'query-complete'
 $v = @{exists=$false}
 if ($null -ne $t) {
  [xml]$x = $t.Xml
@@ -72,11 +90,20 @@ if ($null -ne $t) {
  $g = $x.SelectSingleNode('/t:Task/t:Triggers/t:LogonTrigger/t:UserId',$ns)
  $v = @{exists=$true;xml=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t.Xml));sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;principal_sid=(AccountSid $p.InnerText);trigger_sid=(AccountSid $g.InnerText)}
 }
+Mark 'before-result'
 [IO.File]::WriteAllText($env:TEAMS_FIXTURE_OUTPUT,($v|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+Mark 'complete'
 '''
   output=root/'startup-observation.json';env=dict(os.environ,TEAMS_FIXTURE_TASK=label,TEAMS_FIXTURE_OUTPUT=str(output))
   powershell=Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
-  subprocess.run([str(powershell),'-NoProfile','-NonInteractive','-Command',script],env=env,check=True,capture_output=True,timeout=30)
+  print('startup-inspection: before-powershell',file=sys.stderr,flush=True)
+  try:
+   subprocess.run([str(powershell),'-NoProfile','-NonInteractive','-Command',script],env=env,check=True,capture_output=True,timeout=30)
+  except (subprocess.TimeoutExpired,subprocess.CalledProcessError) as error:
+   # Fixed fixture diagnostics only: no configuration, account or secret bytes.
+   for stream in (error.stdout,error.stderr):
+    if stream:print(stream.decode('utf8',errors='replace') if isinstance(stream,bytes) else stream,file=sys.stderr,flush=True)
+   raise
   value=json.loads(output.read_text(encoding='utf8'))
   if not value['exists']:return None
   return validate_windows_startup(value,executable,home,require_trigger_owner)
