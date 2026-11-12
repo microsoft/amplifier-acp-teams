@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Update Teams Connector</title
+  ><style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #f3f6f3;
+      color: #233737;
+      font: 17px/1.5 system-ui;
+    }
+    main {
+      max-width: 650px;
+      margin: 10vh auto;
+      padding: 26px;
+    }
+    h1 {
+      font-size: 30px;
+    }
+    button,
+    a {
+      display: inline-block;
+      padding: 12px 18px;
+      background: #175d57;
+      color: white;
+      border: 0;
+      border-radius: 5px;
+      font: inherit;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    #error {
+      color: #9b2929;
+    }
+    small {
+      color: #596d6a;
+    }
+  </style>
+  <main>
+    <h1>Update Teams Connector</h1>
+    <p id="status">Reading the prepared download…</p>
+    <p>
+      Your Teams authorization, agent conversations, saved settings and sign-in
+      startup choice stay in place. Current work must finish first.
+    </p>
+    <button id="apply" disabled>Install update</button>
+    <a id="open" hidden>Open connector</a>
+    <p id="error" role="alert"></p>
+    <small
+      >If the new app cannot start, its previous executable and private runtime
+      are restored. Conversation data is never rolled back.</small
+    >
+  </main>
+  <script>
+    const token = location.hash.slice(1);
+    history.replaceState(null, "", location.pathname);
+    const $ = (id) => document.getElementById(id);
+    let busy = false;
+    async function api(path, method = "GET") {
+      const r = await fetch(path, {
+        method,
+        headers: { Authorization: "Bearer " + token },
+      });
+      const v = await r.json();
+      if (!r.ok) throw Error(v.error || "The request was not confirmed");
+      return v;
+    }
+    async function refresh() {
+      try {
+        const s = await api("/status");
+        const done = ["applied", "rolled_back"].includes(s.phase);
+        $("status").textContent =
+          {
+            preparing: "Preparing private application files",
+            prepared: "Ready to install",
+            deferred: "Current work needs to finish first",
+            stopping: "Closing the app safely",
+            swapping: "Installing",
+            starting: "Checking the new app",
+            applied: "Update installed",
+            rolling_back: "Restoring the previous app",
+            rollback_starting: "Checking the restored app",
+            rolled_back: "Previous app restored",
+            recovery_required: "The interrupted update needs recovery",
+          }[s.phase] +
+          " · " +
+          s.version;
+        $("apply").hidden = done;
+        $("apply").disabled = busy || s.worker_active !== false || done;
+        $("apply").textContent = !["prepared", "deferred"].includes(s.phase)
+          ? "Recover interrupted update"
+          : "Install update";
+        $("open").hidden = !done;
+        if (done) $("open").href = s.url;
+        $("error").textContent = s.error || "";
+      } catch (e) {
+        $("error").textContent = e.message;
+      }
+    }
+    $("apply").onclick = async () => {
+      busy = true;
+      $("apply").disabled = true;
+      try {
+        await api("/apply", "POST");
+      } catch (e) {
+        $("error").textContent = e.message;
+      } finally {
+        busy = false;
+        await refresh();
+      }
+    };
+    refresh();
+    setInterval(refresh, 1500);
+  </script>
+</html>

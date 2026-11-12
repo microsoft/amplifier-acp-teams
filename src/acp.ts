@@ -2,7 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { ensure, endpointKey, readPrivate, type Config } from "./config.js";
 import { inputContent, outputFile, type OutputFile } from "./media.js";
@@ -41,7 +43,10 @@ export function authentication(init: Json) {
 export class AcpClient {
   child: ChildProcessWithoutNullStreams;
   closed = false;
-  private stopped: Promise<void>;
+  private stopped: Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>;
   private closing?: Promise<void>;
   connection!: acp.ClientConnection;
   // Scope evidence for questions, not an RPC response registry. IDs are
@@ -53,6 +58,7 @@ export class AcpClient {
     v.method === "session/request_permission"
       ? { outcome: { outcome: "cancelled" } }
       : Promise.reject(new Error("Client capability not available"));
+  private supervised = false;
   constructor(c: Config, home: string, signal?: AbortSignal) {
     ensure(
       c.acp.command && c.acp.cwd,
@@ -76,15 +82,35 @@ export class AcpClient {
     Object.assign(env, c.acp.env);
     for (const [key, name] of Object.entries(c.acp.secret_env))
       env[key] = readPrivate(join(home, "secrets", name));
-    this.child = spawn(c.acp.command, c.acp.args, {
-      cwd: c.acp.cwd,
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: false,
-      detached: process.platform !== "win32",
-    });
-    this.stopped = new Promise<void>((resolve) =>
-      this.child.once("close", () => resolve()),
+    const supervisor =
+      process.platform === "win32"
+        ? process.env.ACP_TEAMS_NATIVE_LAUNCHER
+        : undefined;
+    this.supervised = !!supervisor;
+    if (supervisor) {
+      const current = readFileSync(join(home, "adapter.json"));
+      ensure(
+        current.length <= 4 * 1024 * 1024 &&
+          isDeepStrictEqual(JSON.parse(current.toString("utf8")).acp, c.acp),
+        "ACP configuration changed before launch",
+      );
+      env.ACP_TEAMS_EXPECTED_CONFIG_HASH = createHash("sha256")
+        .update(current)
+        .digest("hex");
+    }
+    this.child = spawn(
+      supervisor || c.acp.command,
+      supervisor ? ["--home", home, "acp"] : c.acp.args,
+      {
+        cwd: c.acp.cwd,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: false,
+        detached: process.platform !== "win32",
+      },
+    );
+    this.stopped = new Promise((resolve) =>
+      this.child.once("close", (code, signal) => resolve({ code, signal })),
     );
     // Agent/provider stderr can contain credentials or prompts. Never forward it.
     this.child.stderr.resume();
@@ -168,18 +194,21 @@ export class AcpClient {
     this.closed = true;
     this.activeRequests.clear();
     this.closing = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("ACP process stop was not confirmed")),
-        5000,
-      );
-      void this.stopped.then(() => {
+      const timeout = setTimeout(() => {
+        this.child.kill("SIGKILL");
+        reject(new Error("ACP process stop was not confirmed"));
+      }, 5000);
+      void this.stopped.then(({ code, signal }) => {
         clearTimeout(timeout);
-        resolve();
+        if (this.supervised && (code !== 0 || signal !== null))
+          reject(new Error("ACP process stop was not confirmed"));
+        else resolve();
       });
     });
     this.connection?.close();
     try {
-      if (process.platform !== "win32" && this.child.pid)
+      if (this.supervised) this.child.stdin.end();
+      else if (process.platform !== "win32" && this.child.pid)
         process.kill(-this.child.pid, "SIGKILL");
       else this.child.kill("SIGKILL");
     } catch {}
@@ -368,7 +397,7 @@ export async function runTurn(
       }
       if (u.content?.type === "text") {
         text += String(u.content.text ?? "");
-        if (text.length > 100000) client.close();
+        if (text.length > 100000) void client.close().catch(() => {});
       } else {
         try {
           const file = outputFile(c, u.content ?? {});

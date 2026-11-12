@@ -45,7 +45,7 @@ def package(binary,target,output,cache):
   for path in resources.rglob('*'):
    if path.is_symlink() or path.suffix=='.node':raise ValueError('Unexpected linked/native module; qualify it explicitly')
   inventory={p.relative_to(resources).as_posix():digest(p) for p in sorted(resources.rglob('*')) if p.is_file()}
-  (resources/'native-bundle.json').write_text(json.dumps({'schema':1,'component':'acp-teams-adapter','version':version,'target':target,'node':node,'package_lock_sha256':digest(ROOT/'package-lock.json'),'files':inventory},indent=2)+'\n')
+  (resources/'native-bundle.json').write_text(json.dumps({'schema':1,'component':'acp-teams-adapter','version':version,'target':target,'launcher_sha256':digest(binary),'node':node,'package_lock_sha256':digest(ROOT/'package-lock.json'),'files':inventory},indent=2)+'\n')
   (stage/'START-HERE.txt').write_text('Open Teams Connector.app on Mac, acp-teams-adapter.exe on Windows, or acp-teams-adapter on Linux. Keep the download together.\nChoose a local password; Node, npm, Rust and WSL are not required. The connector starts paused and unconfigured. Teams app/tenant authorization, public HTTPS callback and an ACP agent still need your explicit setup. No tenant sign-in, model or message is started by installation.\nThis preview is unsigned/not notarized. Verify its published checksum; do not disable OS security controls.\n')
   filename=f'acp-teams-adapter-{version}-{target}'+('.tar.gz' if kind.startswith('linux') else '.zip');dest=output/filename
   if kind.startswith('linux'):

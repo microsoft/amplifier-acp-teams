@@ -9,6 +9,8 @@ amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-cons
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fs2 = "0.4"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
 ctrlc = { version = "3", features = ["termination"] }
 libc = "0.2"
 rand = "0.8"

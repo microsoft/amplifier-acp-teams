@@ -16,6 +16,9 @@ use std::{
     time::Duration,
 };
 
+mod acp;
+mod update;
+
 const APP: Application = Application {
     display_name: "Teams Connector",
     startup_description: "Teams Connector",
@@ -38,6 +41,12 @@ struct Cli {
 #[derive(Subcommand)]
 enum Action {
     Serve,
+    #[command(hide = true)]
+    Acp,
+    #[command(hide = true)]
+    ApplyUpdate {
+        request_id: uuid::Uuid,
+    },
     #[command(hide = true)]
     HashPassword,
     #[command(hide = true)]
@@ -97,6 +106,12 @@ fn run(cli: Cli) -> Result<()> {
         Some(h) => h,
         None => platform::default_home(&APP, "default")?,
     })?;
+    if matches!(cli.command, Some(Action::Acp)) {
+        return acp::run(&home);
+    }
+    if let Some(Action::ApplyUpdate { request_id }) = &cli.command {
+        return update::apply(&home, &request_id.to_string());
+    }
     if let Some(Action::Startup { enabled }) = cli.command {
         let settings = read_json(&home.join("native.json"))?;
         let id = uuid::Uuid::parse_str(settings["id"].as_str().context("Missing identity")?)?;
@@ -116,6 +131,9 @@ fn run(cli: Cli) -> Result<()> {
         create(&home)?;
     }
     let native=read_json(&home.join("native.json")).context("This existing installation remains managed by its current owner; no native migration was performed")?;
+    if cli.command.is_none() && update::different_download(&home)? {
+        return update::offer(&home, cli.no_browser);
+    }
     if local_status(&home, &native).is_ok() {
         if cli.command.is_none() {
             ready(&home, &native, !cli.no_browser)?;
@@ -135,6 +153,7 @@ fn run(cli: Cli) -> Result<()> {
         .open(lock_path)?;
     lock.try_lock_exclusive()
         .context("This Teams Connector is already starting or running")?;
+    update::validate_launch(&home)?;
     validate_bundle(&home)?;
     let executable = home.join(if cfg!(windows) {
         "bin/acp-teams-adapter.exe"
@@ -153,6 +172,7 @@ fn run(cli: Cli) -> Result<()> {
         .arg("--home")
         .arg(&home)
         .env("ACP_TEAMS_NATIVE_LAUNCHER", &executable)
+        .env("ACP_TEAMS_LAUNCHER_PID", std::process::id().to_string())
         .env_remove("NODE_OPTIONS")
         .env_remove("NODE_PATH")
         .stdin(Stdio::null());
@@ -470,6 +490,15 @@ fn response(stream: &mut TcpStream) -> Result<Value> {
     Ok(serde_json::from_slice(&data)?)
 }
 fn local_status(home: &Path, native: &Value) -> Result<Value> {
+    local_api(home, native, "GET", "status", None)
+}
+fn local_api(
+    home: &Path,
+    native: &Value,
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<Value> {
     let origin = native["origin"].as_str().context("Missing origin")?;
     let address = origin
         .strip_prefix("http://127.0.0.1:")
@@ -501,10 +530,13 @@ fn local_status(home: &Path, native: &Value) -> Result<Value> {
         secret.trim(),
         reply["proof"].as_str().context("Missing listener proof")?,
     )?;
+    let encoded = body.map(Value::to_string).unwrap_or_default();
     write!(
         stream,
-        "GET /api/v1/status HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
-        secret.trim()
+        "{method} /api/v1/{path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        secret.trim(),
+        encoded.len(),
+        encoded
     )?;
     let value = response(&mut stream)?;
     ensure!(value["id"] == id, "Wrong installation status");
@@ -515,6 +547,37 @@ fn local_status(home: &Path, native: &Value) -> Result<Value> {
 struct ProcessJob(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(windows)]
 impl ProcessJob {
+    fn terminate_and_wait(&self) -> Result<()> {
+        use windows_sys::Win32::System::JobObjects::*;
+        unsafe {
+            ensure!(
+                TerminateJobObject(self.0, 1) != 0,
+                "Could not stop the ACP process tree"
+            );
+            let deadline = std::time::Instant::now() + Duration::from_secs(4);
+            loop {
+                let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+                ensure!(
+                    QueryInformationJobObject(
+                        self.0,
+                        JobObjectBasicAccountingInformation,
+                        &mut info as *mut _ as *mut _,
+                        std::mem::size_of_val(&info) as u32,
+                        std::ptr::null_mut()
+                    ) != 0,
+                    "ACP process-tree exit is unknown"
+                );
+                if info.ActiveProcesses == 0 {
+                    return Ok(());
+                }
+                ensure!(
+                    std::time::Instant::now() < deadline,
+                    "ACP descendants did not stop"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
     fn attach(child: &std::process::Child) -> Result<Self> {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::System::JobObjects::*;

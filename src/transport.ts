@@ -33,6 +33,8 @@ export function json(res: ServerResponse, status: number, data: unknown) {
 /** Wire adapter only. Teams SDK validates the JWT before its activity handler.
  * Never set the SDK's pre-authenticated `token` field from an HTTP request. */
 export class Transport implements IHttpServerAdapter {
+  updateHold = false;
+  activeMutations = 0;
   routes = new Map<string, HttpRouteHandler>();
   server = createServer((req, res) => void this.handle(req, res));
   constructor(
@@ -49,8 +51,20 @@ export class Transport implements IHttpServerAdapter {
     this.routes.set(method + " " + path, handler);
   }
   async handle(req: IncomingMessage, res: ServerResponse) {
+    const path = new URL(req.url ?? "/", "http://local").pathname;
+    const mutation =
+      !["GET", "HEAD", "OPTIONS"].includes(req.method || "GET") &&
+      !path.startsWith("/api/v1/native-update/") &&
+      !["/auth/login", "/auth/logout"].includes(path);
+    if (mutation && this.updateHold) {
+      json(res, 503, {
+        error:
+          "The connector is completing a local update. Retry after it returns.",
+      });
+      return;
+    }
+    if (mutation) this.activeMutations++;
     try {
-      const path = new URL(req.url ?? "/", "http://local").pathname;
       if (path === "/api/messages") {
         const handler = this.routes.get((req.method ?? "GET") + " " + path);
         if (!handler) {
@@ -72,6 +86,8 @@ export class Transport implements IHttpServerAdapter {
       if (!res.headersSent)
         json(res, 400, { error: "Request could not be processed" });
       else res.end();
+    } finally {
+      if (mutation) this.activeMutations--;
     }
   }
   async start(port: number | string) {
