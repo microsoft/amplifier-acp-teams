@@ -45,7 +45,17 @@ def run(package,result,browser=False):
     lines=queue.Queue();threading.Thread(target=lambda:lines.put(offer.stdout.readline()),daemon=True).start()
     line=lines.get(timeout=240);assert line,read(home/'native-update.json')if(home/'native-update.json').exists()else 'No prepared update'
     invitation=json.loads(line);address,capability=invitation['url'].split('#');address=address.rstrip('/');headers={'Authorization':'Bearer '+capability,'Origin':address}
-    prepared=wait(lambda:(j if(j:=read(home/'native-update.json'))['request_id']!=previous_id and j['phase']=='prepared' else None),240);assert api('status')['enabled']is False
+    progress=[time.monotonic()-30]
+    def preparation():
+     code,_,observed=launch.request(address,'/status',headers=headers)
+     assert code==200,observed
+     assert not observed.get('error'),{'preparation_error':observed['error']}
+     if time.monotonic()-progress[0]>=30:
+      progress[0]=time.monotonic()
+      print(json.dumps({'preparation_phase':observed['phase'],'staged_regular_files':sum(p.is_file()for p in(home/'native-updates').rglob('*'))}),flush=True)
+     j=read(home/'native-update.json')
+     return j if j['request_id']!=previous_id and j['phase']=='prepared' else None
+    prepared=wait(preparation,240);assert api('status')['enabled']is False
     if not fails:
      before=api('status')['launcher_pid'];db(home,"INSERT INTO jobs(id,key,message,status,time) VALUES('pending-fixture','queued','{}','pending',1)")
      code,_,_=launch.request(address,'/apply',{},headers);assert code==200
