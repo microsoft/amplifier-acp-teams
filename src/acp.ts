@@ -217,7 +217,7 @@ export class AcpClient {
   async initialize(interactive = false) {
     const init = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "acp-teams-adapter", version: "0.5.0" },
+      clientInfo: { name: "acp-teams-adapter", version: "0.5.1" },
       clientCapabilities: interactive
         ? { elicitation: { form: {}, url: {} } }
         : {},

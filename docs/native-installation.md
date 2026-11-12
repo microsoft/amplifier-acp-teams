@@ -25,8 +25,9 @@ local dashboard. Legacy installs retain their bearer token and configuration.
 
 The installation's `native.json` binds its identity and local origin. A launch
 verifies the listener before sending a saved management credential, on the same
-TCP connection. Setup publishes a complete private directory without replacing
-an existing one. The original connector state, delivery uncertainty and saved
+TCP connection. Setup uses the verified download to initialize a private staging
+directory, then publishes it without replacing an existing installation. A setup
+failure preserves the unpublished stage and leaves existing installations alone. The original connector state, delivery uncertainty and saved
 sessions stay in its installation; signing out only removes the browser session.
 No shared identity, provisioning service or global runtime is required.
 
