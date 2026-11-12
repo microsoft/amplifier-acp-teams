@@ -16,6 +16,7 @@ import { Runtime, normalize } from "./runtime.js";
 import { body, json, Transport } from "./transport.js";
 import { AgentAuthenticationRequired, check } from "./acp.js";
 import { manifest } from "./manifest.js";
+import { manifestPackage } from "./manifest-package.js";
 import { dashboard } from "./ui.js";
 import { matchingUpdate, updateHeld, updateIdle } from "./native_update.js";
 import { NativeAuth, nativeSettings } from "./native.js";
@@ -183,6 +184,7 @@ export async function serve(home: string) {
           "lifecycle",
           "check",
           "manifest",
+          "manifest.zip",
           "graph/status",
           "graph/sync",
           "views",
@@ -439,6 +441,22 @@ export async function serve(home: string) {
           json(res, 409, { error: error.message, code: "agent_auth_required" });
         } else throw error;
       }
+      return;
+    }
+    if (path === "/api/v1/manifest.zip" && req.method === "GET") {
+      if (!config.teams.client_id || !config.server.public_url) {
+        json(res, 400, { error: "Set client ID and public HTTPS origin first" });
+        return;
+      }
+      const bytes = manifestPackage(config);
+      res.writeHead(200, {
+        "content-type": "application/zip",
+        "content-disposition": 'attachment; filename="teams-agent.zip"',
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "content-length": bytes.length,
+      });
+      res.end(bytes);
       return;
     }
     if (path === "/api/v1/manifest" && req.method === "GET") {

@@ -14,6 +14,7 @@ try{
  if(await page.locator('#app').evaluate(e=>e.classList.contains('hidden'))){await page.locator('#password').fill(input.password);await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.locator('#app').waitFor({state:'visible'});}
  assert.equal(await page.evaluate(()=>sessionStorage.getItem('teams-setup')),null);
  await page.setViewportSize({width:390,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.getByText('Paused · 0 conversations working').waitFor();
+ await page.getByRole('button',{name:'Download Teams app package'}).click();await page.getByText('Set client ID and public HTTPS origin first',{exact:true}).waitFor();
  if(process.env.UI_ARTIFACTS)await page.screenshot({path:path.join(process.env.UI_ARTIFACTS,'teams-native-paused-mobile.png')});
  await page.getByRole('button',{name:'Sign out',exact:true}).click();await page.getByText('Use the password you chose for this connector.').waitFor();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
  if(process.env.UI_ARTIFACTS)await page.screenshot({path:path.join(process.env.UI_ARTIFACTS,'teams-native-login-mobile.png')});

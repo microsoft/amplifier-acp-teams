@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Actual extracted app, disposable local account. No tenant, ACP or model calls."""
-import argparse,base64,hashlib,json,os,plistlib,re,shutil,socket,subprocess,sys,tarfile,tempfile,time,urllib.request,urllib.error,uuid,zipfile
+import argparse,base64,hashlib,io,json,os,plistlib,re,shutil,socket,subprocess,sys,tarfile,tempfile,time,urllib.request,urllib.error,uuid,zipfile
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -254,6 +254,19 @@ def run(package,result,browser=False,verify_startup=False):
     code,headers,session=request(base,'/auth/login',{'password':password},origin)
    else:code,headers,session=request(base,'/auth/first-account',{'setup_token':cap,'password':password,'start_at_signin':False},origin)
    assert code==200 and session['authenticated'];cookie=next(v for k,v in headers.items()if k.lower()=='set-cookie').split(';')[0];auth={'Cookie':cookie,'X-CSRF-Token':session['csrf'],'Origin':base}
+   code,_,_=request(base,'/api/v1/manifest.zip',headers=auth);assert code==400;checks.append('native authenticated package endpoint rejects unconfigured registration')
+   # Exercise the installed private runtime and actual packaged CLI independently
+   # of the intentionally unconfigured native account; no tenant/ACP calls.
+   export_home=root/'manifest-only';private_node=home/'runtime'/('node.exe'if os.name=='nt'else'node');installed_cli=home/'app/dist/cli.js'
+   subprocess.run([str(private_node),str(installed_cli),'init','--home',str(export_home)],check=True,env=env,capture_output=True,timeout=20)
+   export_config=json.loads((export_home/'adapter.json').read_text());export_config['teams']['client_id']='22222222-2222-4222-8222-222222222222';export_config['server']['public_url']='https://teams.example.invalid';(export_home/'adapter.json').write_text(json.dumps(export_config))
+   exported=root/'teams-agent.zip';subprocess.run([str(private_node),str(installed_cli),'manifest-package','--home',str(export_home),'--output',str(exported)],check=True,env=env,capture_output=True,timeout=20)
+   with zipfile.ZipFile(io.BytesIO(exported.read_bytes()))as package_zip:
+    assert package_zip.namelist()==['manifest.json','color.png','outline.png']and package_zip.testzip()is None
+    package_manifest=json.loads(package_zip.read('manifest.json'));assert package_manifest['id']==export_config['teams']['client_id']and package_manifest['validDomains']==['teams.example.invalid']
+    for name,size in [('color.png',192),('outline.png',32)]:
+     png=package_zip.read(name);assert png[:8]==b'\x89PNG\r\n\x1a\n'and int.from_bytes(png[16:20],'big')==size and int.from_bytes(png[20:24],'big')==size
+   assert(home/'adapter.json').read_bytes()==config;checks.append('installed private Node exports complete Teams ZIP with no developer tools or tenant operations')
    saved=(home/'secrets/local-password.json').read_bytes();assert password.encode()not in saved and json.loads(saved)['encoded'].startswith('$argon2id$');checks.append('shared Argon2 account without system tools or secret argv')
    code,_,_=request(base,'/auth/first-account',{'setup_token':cap,'password':password+' changed','start_at_signin':False},origin);assert code==409;assert(home/'secrets/local-password.json').read_bytes()==saved
    code,_,_=request(base,'/api/v1/views',{}, {'Cookie':cookie,'Origin':base});assert code==401
