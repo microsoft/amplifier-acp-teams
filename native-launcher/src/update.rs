@@ -69,6 +69,7 @@ fn save(home: &Path, j: &Value) -> Result<()> {
 }
 fn phase(home: &Path, j: &mut Value, value: &str) -> Result<()> {
     j["phase"] = json!(value);
+    j.as_object_mut().unwrap().remove("launch_nonce");
     save(home, j)
 }
 fn terminal(j: &Value) -> bool {
@@ -437,9 +438,13 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn start(home: &Path, j: &Value) -> Result<Child> {
+fn start(home: &Path, j: &mut Value) -> Result<Child> {
+    let nonce = random();
+    j["launch_nonce"] = json!(nonce);
+    save(home, j)?;
     let mut command = Command::new(binary(home));
     command
+        .env("ACP_TEAMS_UPDATE_NONCE", nonce)
         .env(
             "ACP_TEAMS_UPDATE_REQUEST",
             j["request_id"].as_str().context("Missing update request")?,
@@ -538,7 +543,7 @@ pub fn apply(home: &Path, id: &str) -> Result<()> {
             install(home, &dir, false, &j)?;
             phase(home, &mut j, "starting")?;
             drop(service);
-            child = Some(start(home, &j)?);
+            child = Some(start(home, &mut j)?);
             healthy(home, &j, &j["candidate"], child.as_mut().unwrap())?;
             Ok(())
         })();
@@ -578,7 +583,7 @@ pub fn apply(home: &Path, id: &str) -> Result<()> {
         install(home, &dir, true, &j)?;
         phase(home, &mut j, "rollback_starting")?;
         drop(service);
-        child = Some(start(home, &j)?);
+        child = Some(start(home, &mut j)?);
         healthy(home, &j, &j["previous"], child.as_mut().unwrap())?;
         Ok(())
     })();
@@ -730,12 +735,19 @@ async fn offer_request(State(s): State<Arc<Offer>>, request: Request) -> Respons
 pub fn validate_launch(home: &Path) -> Result<()> {
     let request = std::env::var("ACP_TEAMS_UPDATE_REQUEST").ok();
     let phase_expected = std::env::var("ACP_TEAMS_UPDATE_PHASE").ok();
-    validate_launch_request(home, request.as_deref(), phase_expected.as_deref())
+    let nonce = std::env::var("ACP_TEAMS_UPDATE_NONCE").ok();
+    validate_launch_request(
+        home,
+        request.as_deref(),
+        phase_expected.as_deref(),
+        nonce.as_deref(),
+    )
 }
 fn validate_launch_request(
     home: &Path,
     request: Option<&str>,
     phase_expected: Option<&str>,
+    nonce: Option<&str>,
 ) -> Result<()> {
     let j = optional_saved(home)?;
     if let Some(request) = request {
@@ -743,7 +755,9 @@ fn validate_launch_request(
         ensure!(
             j["request_id"] == request
                 && j["phase"].as_str() == phase_expected
-                && matches!(phase_expected, Some("starting" | "rollback_starting")),
+                && matches!(phase_expected, Some("starting" | "rollback_starting"))
+                && nonce.is_some_and(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+                && j["launch_nonce"].as_str() == nonce,
             "Update launch was superseded"
         );
         let expected = if phase_expected == Some("starting") {
@@ -777,13 +791,41 @@ mod tests {
         platform::private_dir(&home.join("bin")).unwrap();
         fs::write(binary(home), b"installed").unwrap();
         let id = uuid::Uuid::new_v4().to_string();
-        let mut j = json!({"schema":1,"request_id":id,"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"starting","candidate":{"launcher_sha256":sha(&binary(home)).unwrap()},"previous":{},"protected":{}});
+        let mut j = json!({"schema":1,"request_id":id,"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"starting","launch_nonce":"a".repeat(64),"candidate":{"launcher_sha256":sha(&binary(home)).unwrap()},"previous":{},"protected":{}});
         save(home, &j).unwrap();
-        assert!(validate_launch_request(home, Some(&id), Some("starting")).is_ok());
+        assert!(
+            validate_launch_request(home, Some(&id), Some("starting"), Some(&"a".repeat(64)))
+                .is_ok()
+        );
         j["phase"] = json!("rolling_back");
         save(home, &j).unwrap();
-        assert!(validate_launch_request(home, Some(&id), Some("starting")).is_err());
-        assert!(validate_launch_request(home, None, None).is_err());
+        assert!(
+            validate_launch_request(home, Some(&id), Some("starting"), Some(&"a".repeat(64)))
+                .is_err()
+        );
+        assert!(validate_launch_request(home, None, None, None).is_err());
+    }
+    #[test]
+    fn repeated_rollback_rejects_the_prior_launch_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        platform::private_dir(&home.join("bin")).unwrap();
+        fs::write(binary(home), b"installed").unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let old_nonce = random();
+        let mut j = json!({"schema":1,"request_id":id,"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"rollback_starting","launch_nonce":old_nonce,"candidate":{},"previous":{"launcher_sha256":sha(&binary(home)).unwrap()},"protected":{}});
+        save(home, &j).unwrap();
+        assert!(
+            validate_launch_request(home, Some(&id), Some("rollback_starting"), Some(&old_nonce))
+                .is_ok()
+        );
+        j["launch_nonce"] = json!(random());
+        save(home, &j).unwrap();
+        assert!(
+            validate_launch_request(home, Some(&id), Some("rollback_starting"), Some(&old_nonce))
+                .is_err(),
+            "A stale child must not reuse a later rollback's launch permission"
+        );
     }
     #[test]
     fn invalid_existing_journal_never_becomes_a_fresh_installation() {
@@ -793,7 +835,7 @@ mod tests {
         for raw in [b"{partial".as_slice(), b"{}".as_slice()] {
             fs::write(home.join("native-update.json"), raw).unwrap();
             assert!(optional_saved(home).is_err());
-            assert!(validate_launch_request(home, None, None).is_err());
+            assert!(validate_launch_request(home, None, None, None).is_err());
             assert_eq!(fs::read(home.join("native-update.json")).unwrap(), raw);
         }
     }
