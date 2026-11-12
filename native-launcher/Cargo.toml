@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 [dependencies]
-amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-constellation", rev = "b65ed668c7df2ac4df3b15198bf8fb4db44abbec", features = ["local-auth"] }
+amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-constellation", rev = "5aaed39b0d1394b182c532f8694e56b919ab5867", features = ["local-auth"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fs2 = "0.4"

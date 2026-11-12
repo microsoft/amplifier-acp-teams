@@ -43,7 +43,10 @@ conversation database and newer evidence are never restored from a backup.
 If the operation is interrupted, reopen that same download and choose **Recover
 interrupted update**. Status reconciles the same saved request; an unconfirmed
 stop cannot replace a potentially running app. Keep the download until its result
-is confirmed. No background release poller or additional interpreter is installed.
+is confirmed. If settings or credentials changed after preparation, choose **Discard prepared
+update** and reopen the download to prepare again. Discard is available only
+before cutover; interrupted cutovers retain their recovery evidence. No background
+release poller or additional interpreter is installed.
 
 These controls belong to native installation-owned homes. Existing externally
 managed connections keep their current owner. Windows native ACP operations each

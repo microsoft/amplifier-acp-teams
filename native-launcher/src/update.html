@@ -50,6 +50,7 @@
       startup choice stay in place. Current work must finish first.
     </p>
     <button id="apply" disabled>Install update</button>
+    <button id="discard" hidden>Discard prepared update</button>
     <a id="open" hidden>Open connector</a>
     <p id="error" role="alert"></p>
     <small
@@ -58,7 +59,9 @@
     >
   </main>
   <script>
-    const token = location.hash.slice(1);
+    const token =
+      location.hash.slice(1) || sessionStorage.getItem("teams-update");
+    if (location.hash) sessionStorage.setItem("teams-update", token);
     history.replaceState(null, "", location.pathname);
     const $ = (id) => document.getElementById(id);
     let busy = false;
@@ -74,11 +77,13 @@
     async function refresh() {
       try {
         const s = await api("/status");
-        const done = ["applied", "rolled_back"].includes(s.phase);
+        const done = ["applied", "rolled_back", "cancelled"].includes(s.phase);
         $("status").textContent =
           {
             preparing: "Preparing private application files",
             prepared: "Ready to install",
+            cancelled:
+              "Prepared download discarded. Reopen it to prepare again",
             deferred: "Current work needs to finish first",
             stopping: "Closing the app safely",
             swapping: "Installing",
@@ -92,6 +97,8 @@
           " · " +
           s.version;
         $("apply").hidden = done;
+        $("discard").hidden = !["prepared", "deferred"].includes(s.phase);
+        $("discard").disabled = busy || s.worker_active !== false;
         $("apply").disabled = busy || s.worker_active !== false || done;
         $("apply").textContent = !["prepared", "deferred"].includes(s.phase)
           ? "Recover interrupted update"
@@ -108,6 +115,18 @@
       $("apply").disabled = true;
       try {
         await api("/apply", "POST");
+      } catch (e) {
+        $("error").textContent = e.message;
+      } finally {
+        busy = false;
+        await refresh();
+      }
+    };
+    $("discard").onclick = async () => {
+      busy = true;
+      $("discard").disabled = true;
+      try {
+        await api("/discard", "POST");
       } catch (e) {
         $("error").textContent = e.message;
       } finally {

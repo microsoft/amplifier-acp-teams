@@ -20,7 +20,10 @@ export function updateRecord(home: string, id: string): any | undefined {
 export function updateHeld(home: string, id: string): boolean {
   const j = updateRecord(home, id);
   return (
-    !!j && !["prepared", "deferred", "applied", "rolled_back"].includes(j.phase)
+    !!j &&
+    !["prepared", "deferred", "applied", "rolled_back", "cancelled"].includes(
+      j.phase,
+    )
   );
 }
 export function updateIdle(

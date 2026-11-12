@@ -23,8 +23,46 @@ fn worker_active(home: &Path) -> Option<bool> {
         }),
     }
 }
+fn optional_saved(home: &Path) -> Result<Option<Value>> {
+    let path = home.join("native-update.json");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) => ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "Update record must be an ordinary file"
+        ),
+    }
+    let j = read_json(&path)?;
+    ensure!(
+        j["schema"] == 1
+            && uuid::Uuid::parse_str(j["request_id"].as_str().unwrap_or("")).is_ok()
+            && uuid::Uuid::parse_str(j["installation_id"].as_str().unwrap_or("")).is_ok()
+            && matches!(
+                j["phase"].as_str(),
+                Some(
+                    "prepared"
+                        | "deferred"
+                        | "stopping"
+                        | "swapping"
+                        | "starting"
+                        | "rolling_back"
+                        | "rollback_starting"
+                        | "recovery_required"
+                        | "applied"
+                        | "rolled_back"
+                        | "cancelled"
+                )
+            )
+            && j["candidate"].is_object()
+            && j["previous"].is_object()
+            && j["protected"].is_object(),
+        "Update record is invalid; saved evidence was preserved"
+    );
+    Ok(Some(j))
+}
 fn saved(home: &Path) -> Result<Value> {
-    read_json(&home.join("native-update.json"))
+    optional_saved(home)?.context("No prepared update")
 }
 fn save(home: &Path, j: &Value) -> Result<()> {
     platform::private_write(&home.join("native-update.json"), &serde_json::to_vec(j)?)
@@ -34,7 +72,10 @@ fn phase(home: &Path, j: &mut Value, value: &str) -> Result<()> {
     save(home, j)
 }
 fn terminal(j: &Value) -> bool {
-    matches!(j["phase"].as_str(), Some("applied" | "rolled_back"))
+    matches!(
+        j["phase"].as_str(),
+        Some("applied" | "rolled_back" | "cancelled")
+    )
 }
 fn binary(home: &Path) -> PathBuf {
     home.join(if cfg!(windows) {
@@ -175,7 +216,7 @@ fn stage(home: &Path) -> Result<Value> {
         candidate["launcher_sha256"] == sha(&current)?,
         "Downloaded launcher changed"
     );
-    if let Ok(j) = saved(home)
+    if let Some(j) = optional_saved(home)?
         && !terminal(&j)
     {
         ensure!(
@@ -183,6 +224,11 @@ fn stage(home: &Path) -> Result<Value> {
             "Finish the existing update before opening another download"
         );
         return Ok(j);
+    }
+    if let Some(previous_record) = optional_saved(home)? {
+        let path = directory(home, previous_record["request_id"].as_str().unwrap())?
+            .join("completion.json");
+        platform::private_write(&path, &serde_json::to_vec(&previous_record)?)?;
     }
     let previous = read_json(&home.join("native-bundle.json"))?;
     validate_files(home, &previous)?;
@@ -207,6 +253,20 @@ fn stage(home: &Path) -> Result<Value> {
     let j = json!({"schema":1,"request_id":id,"installation_id":native["id"],"phase":"prepared","candidate":candidate,"previous":previous,"protected":protected(home)?});
     save(home, &j)?;
     Ok(j)
+}
+fn discard(home: &Path, id: &str) -> Result<()> {
+    let _lock = lock(home, "native-update.lock")?;
+    let mut j = saved(home)?;
+    ensure!(
+        j["request_id"] == id && matches!(j["phase"].as_str(), Some("prepared" | "deferred")),
+        "An active or unresolved update cannot be discarded"
+    );
+    phase(home, &mut j, "cancelled")?;
+    platform::private_write(
+        &directory(home, id)?.join("completion.json"),
+        &serde_json::to_vec(&j)?,
+    )?;
+    Ok(())
 }
 fn api(home: &Path, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
     local_api(home, &owner(home)?, method, path, body)
@@ -435,6 +495,9 @@ pub fn apply(home: &Path, id: &str) -> Result<()> {
         j["request_id"] == id && owner(home)?["id"] == j["installation_id"],
         "Update identity changed"
     );
+    if j["phase"] == "cancelled" {
+        return Ok(());
+    }
     if terminal(&j) {
         let _ = api(
             home,
@@ -447,15 +510,27 @@ pub fn apply(home: &Path, id: &str) -> Result<()> {
     let dir = directory(home, id)?;
     let mut child = None;
     if matches!(j["phase"].as_str(), Some("prepared" | "deferred")) {
-        ensure!(
-            protected(home)? == j["protected"],
-            "Saved settings changed; no update was applied"
-        );
-        let readiness = api(home, "GET", "native-update/readiness", None)?;
+        let preflight = (|| -> Result<Value> {
+            ensure!(
+                protected(home)? == j["protected"],
+                "Saved settings changed. Discard this prepared update and reopen the download; no update was applied"
+            );
+            api(home, "GET", "native-update/readiness", None)
+        })();
+        let readiness = match preflight {
+            Ok(value) => value,
+            Err(error) => {
+                j["error"] = json!(error.to_string());
+                save(home, &j)?;
+                return Err(error);
+            }
+        };
         if readiness["idle"] != true {
+            j["error"] = json!("Current connector work needs to finish first");
             phase(home, &mut j, "deferred")?;
             anyhow::bail!("Current connector work needs to finish first");
         }
+        j.as_object_mut().unwrap().remove("error");
         let result = (|| -> Result<()> {
             phase(home, &mut j, "stopping")?;
             let service = stopped(home, &j, &mut child)?;
@@ -602,6 +677,10 @@ async fn offer_request(State(s): State<Arc<Offer>>, request: Request) -> Respons
             ("GET", "/status") => Ok(
                 json!({"phase":j["phase"],"version":j["candidate"]["version"],"error":j["error"],"worker_active":worker_active(&s.home),"url":owner(&s.home)?["origin"]}),
             ),
+            ("POST", "/discard") => {
+                discard(&s.home, &id)?;
+                Ok(json!({"discarded":true,"request_id":id}))
+            }
             ("POST", "/apply") => {
                 let _guard = lock(&s.home, "native-update.lock")?;
                 let executable = directory(&s.home, &id)?.join(if cfg!(windows) {
@@ -658,7 +737,7 @@ fn validate_launch_request(
     request: Option<&str>,
     phase_expected: Option<&str>,
 ) -> Result<()> {
-    let j = saved(home).ok();
+    let j = optional_saved(home)?;
     if let Some(request) = request {
         let j = j.context("No update owns this launch")?;
         ensure!(
@@ -680,7 +759,7 @@ fn validate_launch_request(
         ensure!(
             matches!(
                 j["phase"].as_str(),
-                Some("prepared" | "deferred" | "applied" | "rolled_back")
+                Some("prepared" | "deferred" | "applied" | "rolled_back" | "cancelled")
             ),
             "Open the prepared download to finish or recover the current update"
         );
@@ -697,13 +776,46 @@ mod tests {
         let home = temp.path();
         platform::private_dir(&home.join("bin")).unwrap();
         fs::write(binary(home), b"installed").unwrap();
-        let mut j = json!({"request_id":"a","phase":"starting","candidate":{"launcher_sha256":sha(&binary(home)).unwrap()}});
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut j = json!({"schema":1,"request_id":id,"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"starting","candidate":{"launcher_sha256":sha(&binary(home)).unwrap()},"previous":{},"protected":{}});
         save(home, &j).unwrap();
-        assert!(validate_launch_request(home, Some("a"), Some("starting")).is_ok());
+        assert!(validate_launch_request(home, Some(&id), Some("starting")).is_ok());
         j["phase"] = json!("rolling_back");
         save(home, &j).unwrap();
-        assert!(validate_launch_request(home, Some("a"), Some("starting")).is_err());
+        assert!(validate_launch_request(home, Some(&id), Some("starting")).is_err());
         assert!(validate_launch_request(home, None, None).is_err());
+    }
+    #[test]
+    fn invalid_existing_journal_never_becomes_a_fresh_installation() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        assert!(optional_saved(home).unwrap().is_none());
+        for raw in [b"{partial".as_slice(), b"{}".as_slice()] {
+            fs::write(home.join("native-update.json"), raw).unwrap();
+            assert!(optional_saved(home).is_err());
+            assert!(validate_launch_request(home, None, None).is_err());
+            assert_eq!(fs::read(home.join("native-update.json")).unwrap(), raw);
+        }
+    }
+    #[test]
+    fn discard_is_only_available_before_cutover_and_retains_receipt() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut j = json!({"schema":1,"request_id":id,"installation_id":uuid::Uuid::new_v4().to_string(),"phase":"prepared","candidate":{},"previous":{},"protected":{}});
+        save(home, &j).unwrap();
+        discard(home, &id).unwrap();
+        assert_eq!(saved(home).unwrap()["phase"], "cancelled");
+        assert_eq!(
+            read_json(&directory(home, &id).unwrap().join("completion.json")).unwrap()["phase"],
+            "cancelled"
+        );
+        for phase in ["stopping", "swapping", "starting", "recovery_required"] {
+            j["phase"] = json!(phase);
+            save(home, &j).unwrap();
+            assert!(discard(home, &id).is_err());
+            assert_eq!(saved(home).unwrap()["phase"], phase);
+        }
     }
     #[test]
     fn staged_inventory_refuses_changed_content_and_parent_paths() {

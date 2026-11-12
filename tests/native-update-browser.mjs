@@ -22,6 +22,10 @@ try {
       () => document.documentElement.scrollWidth <= innerWidth + 1,
     ),
   );
+  await page.reload();
+  await page
+    .getByText("Current work needs to finish first", { exact: false })
+    .waitFor();
   await page.route("**/apply", async (route) => {
     posts++;
     const response = await route.fetch();
