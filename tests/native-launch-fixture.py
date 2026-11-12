@@ -15,6 +15,50 @@ launch=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launch)
 
 
+class StartupFraming(unittest.TestCase):
+ def present(self,principal='S-1-5-21-1234',trigger='S-1-5-21-1234'):
+  xml=base64.b64encode('<Task>café 雪</Task>'.encode()).decode()
+  return '\n'.join(['teams-startup-v1','present',xml,'S-1-5-21-1234',principal,trigger])+'\n'
+
+ def test_exact_absence_marker(self):
+  self.assertEqual(launch.parse_startup_observation('teams-startup-v1\nabsent\n'),{'exists':False})
+
+ def test_present_preserves_unicode_xml_and_resolved_sids(self):
+  value=launch.parse_startup_observation(self.present())
+  self.assertTrue(value['exists'])
+  self.assertEqual(base64.b64decode(value['xml']).decode(),'<Task>café 雪</Task>')
+  self.assertEqual(value['sid'],value['principal_sid'])
+  self.assertEqual(value['sid'],value['trigger_sid'])
+
+ def test_missing_extra_unknown_or_duplicate_fields_refuse(self):
+  good=self.present()
+  cases=['','absent\n','teams-startup-v2\nabsent\n','teams-startup-v1\nunknown\n',
+   'teams-startup-v1\nabsent\nextra\n','teams-startup-v1\nabsent\n\n',
+   good.rsplit('\n',2)[0]+'\n',good+'extra\n',good.replace('present\n','present\npresent\n')]
+  for text in cases:
+   with self.subTest(text=text),self.assertRaises(ValueError):launch.parse_startup_observation(text)
+
+ def test_invalid_base64_or_non_utf8_refuse(self):
+  for encoded in ['','!!!','PFRhc2s+!','/w==','YQ===','YQ== ']:
+   fields=self.present().splitlines();fields[2]=encoded
+   with self.subTest(encoded=encoded),self.assertRaises(ValueError):launch.parse_startup_observation('\n'.join(fields)+'\n')
+
+ def test_explicit_missing_owner_retained_for_existing_validation(self):
+  value=launch.parse_startup_observation(self.present('-','-'))
+  self.assertIsNone(value['principal_sid']);self.assertIsNone(value['trigger_sid'])
+  # Parsing never turns an absent owner into the current user or absent task.
+  self.assertTrue(value['exists']);self.assertEqual(value['sid'],'S-1-5-21-1234')
+
+ def test_malformed_sid_refuses_but_foreign_identity_is_preserved(self):
+  for index in (3,4,5):
+   for sid in ['', 'null', 'MACHINE\\User', 'S-1-5--18', 'S-1-5-18 extra']+(['-']if index==3 else[]):
+    fields=self.present().splitlines();fields[index]=sid
+    with self.subTest(index=index,sid=sid),self.assertRaises(ValueError):launch.parse_startup_observation('\n'.join(fields)+'\n')
+  value=launch.parse_startup_observation(self.present(trigger='S-1-5-18'))
+  self.assertEqual(value['trigger_sid'],'S-1-5-18')
+  self.assertNotEqual(value['trigger_sid'],value['sid'])
+
+
 class FailureEvidence(unittest.TestCase):
  def test_existing_startup_is_not_touched_by_fixture(self):
   config=json.dumps({'id':'940a518b-6f5e-429b-a159-42fde1f3ed67'}).encode()

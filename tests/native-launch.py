@@ -43,6 +43,23 @@ def validate_windows_startup(value,executable,home,require_trigger_owner=True):
  assert trigger.findtext('t:Enabled',namespaces=ns)in(None,'true')
  return hashlib.sha256(ET.tostring(task)).hexdigest()
 
+def parse_startup_observation(text):
+ """Fixed .NET output; no PowerShell module/JSON command discovery is needed."""
+ fields=text.splitlines()
+ if fields==['teams-startup-v1','absent']:return {'exists':False}
+ if len(fields)!=6 or fields[:2]!=['teams-startup-v1','present']:
+  raise ValueError('Invalid startup observation framing')
+ xml=base64.b64decode(fields[2],validate=True)
+ if not xml or base64.b64encode(xml).decode('ascii')!=fields[2]:
+  raise ValueError('Invalid startup observation XML encoding')
+ xml.decode('utf8')
+ value={'exists':True,'xml':fields[2]}
+ for key,field in zip(('sid','principal_sid','trigger_sid'),fields[3:]):
+  if field=='-' and key!='sid':value[key]=None
+  elif re.fullmatch(r'S-1-[0-9]+(?:-[0-9]+)+',field):value[key]=field
+  else:raise ValueError('Invalid startup observation SID field')
+ return value
+
 def observe_startup(root,home,label,require_trigger_owner=True):
  executable=home/'bin'/('acp-teams-adapter.exe'if os.name=='nt'else'acp-teams-adapter')
  if os.name=='nt':
@@ -83,20 +100,28 @@ catch {
  Mark 'confirmed-absent'
 }
 Mark 'query-complete'
-$v = @{exists=$false}
+$fields = [string[]]@('teams-startup-v1','absent')
 if ($null -ne $t) {
  [xml]$x = $t.Xml
  $ns = [Xml.XmlNamespaceManager]::new($x.NameTable)
  $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
  $p = $x.SelectSingleNode('/t:Task/t:Principals/t:Principal/t:UserId',$ns)
  $g = $x.SelectSingleNode('/t:Task/t:Triggers/t:LogonTrigger/t:UserId',$ns)
- $v = @{exists=$true;xml=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t.Xml));sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;principal_sid=(AccountSid $p.InnerText);trigger_sid=(AccountSid $g.InnerText)}
+ $principal = AccountSid $p.InnerText
+ $trigger = AccountSid $g.InnerText
+ if ($null -eq $principal) { $principal = '-' }
+ if ($null -eq $trigger) { $trigger = '-' }
+ $fields = [string[]]@('teams-startup-v1','present',[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($t.Xml)),[Security.Principal.WindowsIdentity]::GetCurrent().User.Value,$principal,$trigger)
 }
 Mark 'before-result'
-[IO.File]::WriteAllText($env:TEAMS_FIXTURE_OUTPUT,($v|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+$encoded = [String]::Join("`n",$fields) + "`n"
+$utf8 = [Text.UTF8Encoding]::new($false)
+Mark 'before-result-write'
+[IO.File]::WriteAllText($env:TEAMS_FIXTURE_OUTPUT,$encoded,$utf8)
+Mark 'result-written'
 Mark 'complete'
 '''
-  output=root/'startup-observation.json';env=dict(os.environ,TEAMS_FIXTURE_TASK=label,TEAMS_FIXTURE_OUTPUT=str(output))
+  output=root/'startup-observation.txt';env=dict(os.environ,TEAMS_FIXTURE_TASK=label,TEAMS_FIXTURE_OUTPUT=str(output))
   powershell=Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
   print('startup-inspection: before-powershell',file=sys.stderr,flush=True)
   try:
@@ -106,7 +131,7 @@ Mark 'complete'
    for stream in (error.stdout,error.stderr):
     if stream:print(stream.decode('utf8',errors='replace') if isinstance(stream,bytes) else stream,file=sys.stderr,flush=True)
    raise
-  value=json.loads(output.read_text(encoding='utf8'))
+  value=parse_startup_observation(output.read_text(encoding='utf8'))
   if not value['exists']:return None
   return validate_windows_startup(value,executable,home,require_trigger_owner)
  if sys.platform!='darwin':raise AssertionError('Startup registration fixture requires Windows or macOS')
