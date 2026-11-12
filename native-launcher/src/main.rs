@@ -141,7 +141,8 @@ fn run(cli: Cli) -> Result<()> {
     } else {
         "bin/acp-teams-adapter"
     });
-    let mut child = Command::new(node(&home))
+    let mut command = Command::new(node(&home));
+    command
         .arg(home.join("app/dist/cli.js"))
         .arg("serve")
         .arg("--home")
@@ -149,10 +150,29 @@ fn run(cli: Cli) -> Result<()> {
         .env("ACP_TEAMS_NATIVE_LAUNCHER", &executable)
         .env_remove("NODE_OPTIONS")
         .env_remove("NODE_PATH")
-        .stdin(Stdio::null())
-        .spawn()?;
+        .stdin(Stdio::null());
     #[cfg(windows)]
-    let _job = ProcessJob::attach(&child)?;
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
+    }
+    let mut child = command.spawn()?;
+    #[cfg(windows)]
+    let _job = match ProcessJob::attach(&child) {
+        Ok(job) => job,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+    #[cfg(windows)]
+    if let Err(error) = resume_suspended(&child) {
+        drop(_job);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
     let mut live = false;
     for _ in 0..100 {
         if let Some(status) = child.try_wait()? {
@@ -514,6 +534,47 @@ impl Drop for ProcessJob {
         }
     }
 }
+// std::process retains the process handle but not the initial thread handle.
+// CREATE_SUSPENDED guarantees that no child code runs before job assignment.
+#[cfg(windows)]
+fn resume_suspended(child: &std::process::Child) -> Result<()> {
+    use windows_sys::Win32::{
+        Foundation::*,
+        System::{Diagnostics::ToolHelp::*, Threading::*},
+    };
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    ensure!(
+        snapshot != INVALID_HANDLE_VALUE,
+        "Could not inspect the suspended Teams process"
+    );
+    let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+    let mut found = None;
+    let mut available = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+    while available {
+        if entry.th32OwnerProcessID == child.id() {
+            found = Some(entry.th32ThreadID);
+            break;
+        }
+        available = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+    }
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    let id = found.context("The suspended Teams process has no initial thread")?;
+    let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, id) };
+    ensure!(
+        !thread.is_null(),
+        "Could not open the suspended Teams thread"
+    );
+    let resumed = unsafe { ResumeThread(thread) };
+    unsafe {
+        CloseHandle(thread);
+    }
+    ensure!(resumed == 1, "Could not resume the suspended Teams process");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,5 +643,29 @@ mod tests {
         let received = server.join().unwrap();
         assert!(!received.contains("Authorization"));
         assert!(!received.contains(&secret));
+    }
+    #[cfg(windows)]
+    #[test]
+    fn suspended_node_child_is_owned_before_it_can_execute() {
+        use std::os::windows::process::CommandExt;
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("ran.txt");
+        let python = std::env::var("TEAMS_TEST_PYTHON").unwrap_or_else(|_| "python".into());
+        let mut command = Command::new(python);
+        command.args(["-c","import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text('ran'); time.sleep(60)"]).arg(&marker).creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
+        let mut child = command.spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!marker.exists());
+        let job = ProcessJob::attach(&child).unwrap();
+        resume_suspended(&child).unwrap();
+        for _ in 0..100 {
+            if marker.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(marker.exists());
+        drop(job);
+        child.wait().unwrap();
     }
 }
