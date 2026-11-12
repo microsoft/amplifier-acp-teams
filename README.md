@@ -20,6 +20,12 @@ Teams → Microsoft SDK authentication → conversation queue → ordinary ACP s
 
 ## Start here
 
+Download the matching native package from [Releases](https://github.com/microsoft/amplifier-acp-teams/releases), extract it, and open **Teams Connector**. It includes Node and its dependencies. [Native installation](docs/native-installation.md) covers the local account, setup, and updates; Teams tenant approval remains separate.
+
+### Build from source
+
+The Linux source installer below is for contributors and administrators. It is not a prerequisite for the native app.
+
 ```sh
 git clone https://github.com/microsoft/amplifier-acp-teams.git
 cd amplifier-acp-teams
