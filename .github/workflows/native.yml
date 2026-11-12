@@ -51,6 +51,9 @@ jobs:
           rustup toolchain install 1.93.0 --profile minimal --component rustfmt --component clippy
           rustup +1.93.0 target add "$CARGO_BUILD_TARGET"
           python -c 'import sys; print("TEAMS_TEST_PYTHON="+sys.executable)' >> "$GITHUB_ENV"
+          node -p '"TEAMS_TEST_NODE="+process.execPath' >> "$GITHUB_ENV"
+          mkdir -p native-dist
+          echo "TEAMS_PUBLICATION_REPORT=$GITHUB_WORKSPACE/native-dist/publication-${{ matrix.target }}.json" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native-launcher -> ../target
@@ -58,7 +61,7 @@ jobs:
       - run: npm run check && npm test
       - run: python tests/native-launch-fixture.py
       - run: cargo +1.93.0 fmt --manifest-path native-launcher/Cargo.toml --check
-      - run: cargo +1.93.0 test --manifest-path native-launcher/Cargo.toml --locked
+      - run: cargo +1.93.0 test --manifest-path native-launcher/Cargo.toml --locked -- --nocapture
       - run: cargo +1.93.0 clippy --manifest-path native-launcher/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo +1.93.0 build --manifest-path native-launcher/Cargo.toml --release --locked
       - name: Package fixed private Node and production dependencies
