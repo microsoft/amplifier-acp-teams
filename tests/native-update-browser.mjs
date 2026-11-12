@@ -22,6 +22,12 @@ try {
       () => document.documentElement.scrollWidth <= innerWidth + 1,
     ),
   );
+  assert.equal(
+    await page
+      .getByRole("link", { name: "Open connector", includeHidden: true })
+      .isVisible(),
+    false,
+  );
   await page.reload();
   await page
     .getByText("Current work needs to finish first", { exact: false })
@@ -47,6 +53,8 @@ try {
     await page.getByRole("link", { name: "Open connector" }).count(),
     1,
   );
+  assert.equal(await page.locator("#apply").isVisible(), false);
+  assert.equal(await page.locator("#discard").isVisible(), false);
   await page.getByRole("link", { name: "Open connector" }).focus();
   await page.keyboard.press("Enter");
   await page.waitForURL((url) => url.origin !== new URL(input.url).origin);
