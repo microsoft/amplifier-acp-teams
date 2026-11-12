@@ -21,12 +21,14 @@ export async function body(req: IncomingMessage, limit = 100000): Promise<any> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 export function json(res: ServerResponse, status: number, data: unknown) {
+  const encoded = JSON.stringify(data);
   res.writeHead(status, {
     "content-type": "application/json",
+    "content-length": Buffer.byteLength(encoded),
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
   });
-  res.end(JSON.stringify(data));
+  res.end(encoded);
 }
 /** Wire adapter only. Teams SDK validates the JWT before its activity handler.
  * Never set the SDK's pre-authenticated `token` field from an HTTP request. */

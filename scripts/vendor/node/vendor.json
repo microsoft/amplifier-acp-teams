@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/microsoft/amplifier-constellation",
+  "commit": "02e4b9494ff445d0b6104ee645cab3f381bc7f01",
+  "path": "packaging/node",
+  "files": {
+    "README.md": "01a75b1d945922d3cd13005dbd5ba4166570853c7ff83ad7cea52b86c236f9e0",
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "test_support.py": "4de1bfa63ad4af7b478838e8f667bcc0a643b39f7cffd8c54ee3d2d804e04972",
+    "lock.json": "ccadd58999f075005e40b3ad042e80b04c021d109de261776bd0758e902436fd",
+    "node_support.py": "004642110e8a7d89513a0b4c91307ef7ab0b59675c5d1902c7f7c45b65a6f6c6"
+  }
+}

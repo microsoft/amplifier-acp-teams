@@ -63,7 +63,7 @@ test("ordinary ACP auth and forms wait for owner decisions on the same connectio
   const c = initialize(home);
   const store = new Store(home);
   try {
-    c.acp.command = "/usr/bin/python3";
+    c.acp.command = (process.env.TEAMS_TEST_PYTHON || "python3");
     c.acp.args = [resolve("tests/questions-fixture.py")];
     c.acp.timeout_seconds = 15;
     const job = {
