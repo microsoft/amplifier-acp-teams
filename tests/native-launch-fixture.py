@@ -1,5 +1,6 @@
 """Failure evidence and exact child/log cleanup; no app, tenant or model."""
 import importlib.util
+import io
 import base64
 import json
 import subprocess
@@ -13,6 +14,61 @@ import xml.etree.ElementTree as ET
 spec=importlib.util.spec_from_file_location('launch',Path(__file__).with_name('native-launch.py'))
 launch=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launch)
+
+
+class UpdateFailureEvidence(unittest.TestCase):
+ def setUp(self):
+  spec=importlib.util.spec_from_file_location('native_update_fixture',Path(__file__).with_name('native-update-process.py'))
+  self.update=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.update)
+
+ def exercise(self,root,journal,opener):
+  home=root/'home';home.mkdir();(home/'native-update.json').write_text(json.dumps(journal))
+  (root/'server.log').write_text('Bearer private-token http://127.0.0.1:1/#setup=another-secret password-secret')
+  process=mock.Mock(pid=123);process.poll.return_value=None
+  failure=AssertionError('Original terminal timeout')
+  with mock.patch.object(self.update.urllib.request,'build_opener',return_value=opener),mock.patch('sys.stdout',new_callable=io.StringIO):
+   evidence=self.update.failure_evidence(root,home,root/'result.json','http://127.0.0.1:1','private-token',process,[],[('http://127.0.0.1:2','offer-secret')],['private-token','password-secret','offer-secret'],failure)
+  self.assertEqual(str(failure),'Original terminal timeout')
+  self.assertEqual(json.loads((root/'result-failure.json').read_text()),evidence)
+  return evidence
+
+ def test_dead_api_preserves_phase_and_unknown_process_outcome_without_secrets(self):
+  with tempfile.TemporaryDirectory()as directory:
+   opener=mock.Mock();opener.open.side_effect=self.update.urllib.error.URLError('Connection refused')
+   evidence=self.exercise(Path(directory),{'phase':'rollback_starting','error':'Cannot commit private state password-secret','protected':{'credential':'hidden-config-value'},'launch_nonce':'private-nonce'},opener)
+   self.assertEqual(evidence['journal']['phase'],'rollback_starting')
+   self.assertEqual(evidence['health']['process_exit'],'not_established')
+   self.assertIsNone(evidence['known_processes'][0]['exit_code'])
+   self.assertIn('Stdio::null',evidence['worker_stderr'])
+   for private in ['private-token','another-secret','password-secret','hidden-config-value','private-nonce']:
+    self.assertNotIn(private,json.dumps(evidence))
+   for call in opener.open.call_args_list:self.assertEqual(call.kwargs['timeout'],2)
+
+ def test_health_and_offer_snapshot_only_keep_allowed_scalar_metadata(self):
+  with tempfile.TemporaryDirectory()as directory:
+   value={'id':'example-installation','pid':123,'launcher_pid':124,'version':'0.5.2','active':0,'enabled':False,'phase':'starting','worker_active':True,'config':{'secret':'hidden-config'},'model':'hidden-model','launch_nonce':'hidden-nonce'}
+   reply=mock.MagicMock(status=200);reply.__enter__.return_value=reply;reply.read.return_value=json.dumps(value).encode()
+   opener=mock.Mock();opener.open.return_value=reply
+   evidence=self.exercise(Path(directory),{'phase':'starting','error':{'config':'hidden-config'},'candidate':{'version':{'model':'hidden-model'}}},opener)
+   self.assertEqual(evidence['health']['fields']['pid'],123)
+   self.assertTrue(evidence['offers'][0]['fields']['worker_active'])
+   for private in ['hidden-config','hidden-model','hidden-nonce']:self.assertNotIn(private,json.dumps(evidence))
+
+ def test_directory_cleanup_failure_keeps_original_terminal_failure(self):
+  directory=mock.Mock(name='directory');directory.name='unused fixture';directory.cleanup.side_effect=PermissionError('Still open')
+  original=AssertionError('Original terminal timeout')
+  with mock.patch.object(self.update.tempfile,'TemporaryDirectory',return_value=directory),mock.patch('sys.stdout',new_callable=io.StringIO):
+   with self.assertRaises(AssertionError)as raised:
+    with self.update.fixture_directory():raise original
+  self.assertIs(raised.exception,original)
+  self.assertIn('cleanup not confirmed',original.__notes__[0])
+
+ def test_malformed_journal_does_not_replace_original_failure(self):
+  with tempfile.TemporaryDirectory()as directory:
+   opener=mock.Mock();opener.open.side_effect=self.update.urllib.error.URLError('offline')
+   evidence=self.exercise(Path(directory),[],opener)
+   self.assertEqual(evidence['journal']['read_error_type'],'AttributeError')
+   self.assertEqual(evidence['error']['message'],'Original terminal timeout')
 
 
 class StartupFraming(unittest.TestCase):
