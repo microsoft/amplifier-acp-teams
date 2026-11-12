@@ -34,7 +34,9 @@ No shared identity, provisioning service or global runtime is required.
 
 Verify and open a newer complete native download. It prepares its exact launcher,
 app and private Node files for this installation and opens a local update page.
-Choose **Install update** after current work finishes. The connector retains its
+Keep the installed connector open, then choose **Install update** after current
+work finishes. This first update flow verifies idle work through that running
+connector; it does not start a stopped tenant connection for you. The connector retains its
 Teams authorization, agent configuration, conversations, unknown delivery records
 and startup preference. No model or tenant account is changed.
 

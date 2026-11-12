@@ -515,7 +515,7 @@ pub fn apply(home: &Path, id: &str) -> Result<()> {
                 protected(home)? == j["protected"],
                 "Saved settings changed. Discard this prepared update and reopen the download; no update was applied"
             );
-            api(home, "GET", "native-update/readiness", None)
+            api(home, "GET", "native-update/readiness", None).context("Could not verify the running connector. Open the installed connector first, then return here to install; no update was applied")
         })();
         let readiness = match preflight {
             Ok(value) => value,

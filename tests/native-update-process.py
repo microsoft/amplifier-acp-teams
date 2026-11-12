@@ -24,9 +24,11 @@ def run(package,result,browser=False):
  with tempfile.TemporaryDirectory(prefix='Teams update café 雪 ')as tmp:
   root=Path(tmp);bundle=root/'download';bundle.mkdir();launch.extract(package,bundle)
   name='acp-teams-adapter.exe' if os.name=='nt' else 'acp-teams-adapter';binary=next(p for p in bundle.rglob(name)if p.is_file());home=root/'saved-connection';log=open(root/'process.log','ab')
-  process=subprocess.Popen([str(binary),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=log,stderr=log)
+  env={k:v for k,v in os.environ.items()if not k.upper().startswith(('TEAMS_','OPENAI_','ANTHROPIC_','AZURE_','GOOGLE_','AMPLIFIER_','NODE_','ACP_'))};env['PATH']=str(root/'no-tools')
+  process=subprocess.Popen([str(binary),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env)
   base=None;token=None
   def current():
+   assert process.poll()is None,'Initial package exited: '+(root/'process.log').read_text(encoding='utf8',errors='replace')[-4000:]
    settings=read(home/'native.json');origin=settings['origin'];code,_,session=launch.request(origin,'/auth/session');return origin if code==200 else None
   def api(path,body=None):return launch.request(base,'/api/v1/'+path,body,{'Authorization':'Bearer '+token})[2]
   try:
@@ -41,7 +43,7 @@ def run(package,result,browser=False):
     script=resources/'app/dist/native_update.js';script.write_bytes(script.read_bytes()+(b'\nthrow new Error("disposable candidate start failure");\n'if fails else b'\n// disposable replacement payload\n'))
     manifest=read(resources/'native-bundle.json');manifest['files']['app/dist/native_update.js']=digest(script);(resources/'native-bundle.json').write_text(json.dumps(manifest),encoding='utf8')
     previous_id=read(home/'native-update.json')['request_id'] if(home/'native-update.json').exists()else None
-    offer=subprocess.Popen([str(executable),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=log,text=True,encoding='utf8');offers.append(offer)
+    offer=subprocess.Popen([str(executable),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=log,text=True,encoding='utf8',env=env);offers.append(offer)
     lines=queue.Queue();threading.Thread(target=lambda:lines.put(offer.stdout.readline()),daemon=True).start()
     line=lines.get(timeout=240);assert line,read(home/'native-update.json')if(home/'native-update.json').exists()else 'No prepared update'
     invitation=json.loads(line);address,capability=invitation['url'].split('#');address=address.rstrip('/');headers={'Authorization':'Bearer '+capability,'Origin':address}
