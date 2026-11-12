@@ -23,16 +23,13 @@ def run(package,result,browser=False):
  checks=[];offers=[]
  with tempfile.TemporaryDirectory(prefix='Teams update café 雪 ')as tmp:
   root=Path(tmp);bundle=root/'download';bundle.mkdir();launch.extract(package,bundle)
-  name='acp-teams-adapter.exe' if os.name=='nt' else 'acp-teams-adapter';binary=next(p for p in bundle.rglob(name)if p.is_file());home=root/'saved-connection';log=open(root/'process.log','ab')
+  name='acp-teams-adapter.exe' if os.name=='nt' else 'acp-teams-adapter';binary=next(p for p in bundle.rglob(name)if p.is_file());home=root/'saved-connection';log=open(root/'server.log','ab')
   env={k:v for k,v in os.environ.items()if not k.upper().startswith(('TEAMS_','OPENAI_','ANTHROPIC_','AZURE_','GOOGLE_','AMPLIFIER_','NODE_','ACP_'))};env['PATH']=str(root/'no-tools')
   process=subprocess.Popen([str(binary),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env)
   base=None;token=None
-  def current():
-   assert process.poll()is None,'Initial package exited: '+(root/'process.log').read_text(encoding='utf8',errors='replace')[-4000:]
-   settings=read(home/'native.json');origin=settings['origin'];code,_,session=launch.request(origin,'/auth/session');return origin if code==200 else None
   def api(path,body=None):return launch.request(base,'/api/v1/'+path,body,{'Authorization':'Bearer '+token})[2]
   try:
-   base=wait(current);token=(home/'secrets/control-token').read_text().strip();cap=read(home/'secrets/first-account.json')['token']
+   process,log,base=launch.wait_started(process,log,root,home,bundle);token=(home/'secrets/control-token').read_text().strip();cap=read(home/'secrets/first-account.json')['token']
    assert launch.request(base,'/auth/first-account',{'setup_token':cap,'password':'Disposable Teams update account','start_at_signin':False},{'Origin':base})[0]==200
    protected={name:digest(home/name)for name in ['adapter.json','native.json','secrets/control-token','secrets/local-password.json']}
    db(home,"INSERT INTO jobs(id,key,message,status,time,session_id,note) VALUES('uncertain','source','{}','uncertain',1,'original-session','unknown effect retained')")
