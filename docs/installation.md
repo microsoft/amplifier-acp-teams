@@ -32,6 +32,14 @@ prerequisite for connecting an agent on either installation path.
    <node> <cli> check --home /path/to/installation
    ```
 
+   The input-redirection example above uses POSIX shell or Windows Command Prompt
+   syntax. In PowerShell, pipe the client-secret file to the bundled executable
+   instead (replace these example installation and private file paths):
+
+   ```powershell
+   Get-Content -Raw -LiteralPath 'C:\private\client-secret.txt' | & 'C:\Teams connector\runtime\node.exe' 'C:\Teams connector\app\dist\cli.js' secret --home 'C:\Teams connector' --name client-secret
+   ```
+
    For a native installation, `<node>` is its `runtime/node` (`runtime/node.exe`
    on Windows), and `<cli>` is its `app/dist/cli.js`, both under the installation
    folder. Use full quoted paths. For a source installation they are `node` and
