@@ -377,12 +377,9 @@ fn create(home: &Path) -> Result<()> {
         &serde_json::to_vec(&manifest)?,
     )?;
     platform::copy_self(&APP, &stage)?;
-    let init = Command::new(node(&stage))
-        .arg(stage.join("app/dist/cli.js"))
-        .arg("init")
-        .arg("--home")
-        .arg(&stage)
-        .output()?;
+    // Keep the unpublished directory free of executing images/modules. Setup
+    // already verified this download; only its output belongs in staging.
+    let init = initialization_command(&source, &stage).output()?;
     ensure!(
         init.status.success(),
         "Could not create local Teams configuration"
@@ -409,6 +406,15 @@ fn create(home: &Path) -> Result<()> {
     )?;
     platform::publish_directory_if_absent(&stage, home)?;
     Ok(())
+}
+fn initialization_command(source: &Path, stage: &Path) -> Command {
+    let mut command = Command::new(node(source));
+    command
+        .arg(source.join("app/dist/cli.js"))
+        .arg("init")
+        .arg("--home")
+        .arg(stage);
+    command
 }
 fn node(home: &Path) -> PathBuf {
     home.join(if cfg!(windows) {
@@ -659,6 +665,71 @@ fn resume_suspended(child: &std::process::Child) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn initialization_executes_verified_download_and_only_writes_staging() {
+        let source = Path::new("verified-download");
+        let stage = Path::new("unpublished-installation");
+        let command = initialization_command(source, stage);
+        assert_eq!(command.get_program(), node(source));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                source.join("app/dist/cli.js").as_os_str(),
+                std::ffi::OsStr::new("init"),
+                std::ffi::OsStr::new("--home"),
+                stage.as_os_str()
+            ]
+        );
+        assert!(command.get_current_dir().is_none());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_completed_node_execution_and_directory_publication() {
+        let supplied = PathBuf::from(std::env::var("TEAMS_TEST_NODE").expect("fixed Node fixture"));
+        let bytes = fs::read(supplied).unwrap();
+        let expected = if cfg!(target_arch = "aarch64") {
+            "c2eaa48231229b966bfef21554df203221862a9fc94ec2a6908aad5eaa6c0ba0"
+        } else {
+            "247e9693d316da9857e44990e5e11709f596f18112251b8026ec6eed80bdf38a"
+        };
+        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected);
+        let mut observations = Vec::new();
+        for execute_from_stage in [true, false] {
+            let temporary = tempfile::tempdir().unwrap();
+            let source = temporary.path().join("download");
+            let stage = temporary.path().join("unpublished");
+            let destination = temporary.path().join("installed");
+            let cwd = std::env::current_dir().unwrap();
+            assert!(!cwd.starts_with(&stage));
+            for root in [&source, &stage] {
+                platform::private_dir(&root.join("runtime")).unwrap();
+                platform::private_dir(&root.join("app/dist")).unwrap();
+                platform::private_create(&node(root), &bytes).unwrap();
+                platform::private_create(
+                    &root.join("app/dist/cli.js"),
+                    br#"const fs=require('node:fs');const path=require('node:path');const home=process.argv.at(-1);fs.writeFileSync(path.join(home,'initialized.json'),'{}');console.log(JSON.stringify({pid:process.pid,execPath:process.execPath,cwd:process.cwd()}));"#,
+                )
+                .unwrap();
+            }
+            let origin = if execute_from_stage { &stage } else { &source };
+            let output = initialization_command(origin, &stage).output().unwrap();
+            assert!(output.status.success());
+            // No sleeps, repeated rename, or additional filesystem probes between
+            // the waited child exit and the single atomic publication attempt.
+            let published = platform::publish_directory_if_absent(&stage, &destination);
+            let process: Value = serde_json::from_slice(&output.stdout).unwrap();
+            let record = json!({"executed_from_stage":execute_from_stage,"node_sha256":expected,"child_exit_success":true,"caller_cwd_outside_stage":true,"child_cwd_matches_caller":Path::new(process["cwd"].as_str().unwrap())==cwd,"publication_succeeded":published.is_ok(),"error":published.as_ref().err().map(|e|format!("{e:#}"))});
+            observations.push(record);
+            if !execute_from_stage {
+                assert!(published.is_ok(), "{}", json!(observations));
+                assert!(destination.join("initialized.json").is_file());
+                assert!(!stage.exists());
+            }
+        }
+        let report = std::env::var("TEAMS_PUBLICATION_REPORT").expect("report path");
+        fs::write(report, serde_json::to_vec_pretty(&observations).unwrap()).unwrap();
+        eprintln!("Windows publication comparison: {}", json!(observations));
+    }
     #[test]
     fn paths_do_not_escape_bundle() {
         for x in ["../x", "/x", "a/../x", "C:\\x", ""] {
