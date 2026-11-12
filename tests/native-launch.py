@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Actual extracted app, disposable local account. No tenant, ACP or model calls."""
-import argparse,hashlib,json,os,shutil,socket,subprocess,tarfile,tempfile,time,urllib.request,urllib.error,zipfile
+import argparse,hashlib,json,os,re,shutil,socket,subprocess,tarfile,tempfile,time,urllib.request,urllib.error,zipfile
 from pathlib import Path
 
 def extract(package,dest):
@@ -18,22 +18,58 @@ def request(base,path,body=None,headers=None):
  try:response=urllib.request.build_opener(urllib.request.ProxyHandler({})).open(r,timeout=20)
  except urllib.error.HTTPError as e:response=e
  with response:return response.status,dict(response.headers.items()),json.load(response)
+
+def launch_failure_details(root,home,bundle):
+ """Retain bounded file names/phase markers, never configuration or secret bytes."""
+ details={'published_home_exists':home.exists(),'stages':[]}
+ try:
+  manifest=next(bundle.rglob('native-bundle.json'))
+  expected=set(json.loads(manifest.read_text(encoding='utf8'))['files'])
+  markers=['native-bundle.json','adapter.json','native.json','secrets/first-account.json','bin/acp-teams-adapter','bin/acp-teams-adapter.exe']
+  for stage in sorted(home.parent.glob('.teams-setup-*'))[:4]:
+   files={p.relative_to(stage).as_posix():p.stat().st_mtime_ns for p in stage.rglob('*')if p.is_file()}
+   missing=sorted(expected-files.keys())
+   details['stages'].append({'expected_files':len(expected),'present_expected_files':len(expected&files.keys()),'missing_count':len(missing),'first_missing':missing[:12],'last_committed':sorted(files,key=files.get)[-12:],'markers':{name:(stage/name).is_file()for name in markers}})
+ except (OSError,ValueError,KeyError,StopIteration) as error:
+  details['inventory_error']=type(error).__name__
+ try:log=(root/'server.log').read_text(encoding='utf8',errors='replace')[-4000:]
+ except OSError:log='Native process log unavailable'
+ log=re.sub(r'(#setup=)[^"\s]+',r'\1[redacted]',log)
+ return json.dumps(details,ensure_ascii=True)+'\n'+log
+
+def wait_started(process,log,root,home,bundle,seconds=180):
+ try:
+  deadline=time.monotonic()+seconds
+  while time.monotonic()<deadline:
+   if process.poll() is not None:raise AssertionError(f'Native process exited ({process.returncode})')
+   try:
+    settings=json.loads((home/'native.json').read_text(encoding='utf8'));base=settings['origin'];status,_,_=request(base,'/auth/session')
+    if status==200:return process,log,base
+   except(OSError,ValueError):pass
+   time.sleep(.1)
+  raise AssertionError(f'Native app did not become ready after {seconds} seconds')
+ except BaseException as failure:
+  cleanup_error=None
+  try:
+   if process.poll()is None:process.kill()
+   process.wait(timeout=20)
+  except (OSError,subprocess.TimeoutExpired)as error:cleanup_error=type(error).__name__
+  finally:log.close()
+  details=launch_failure_details(root,home,bundle)
+  if cleanup_error:details+='\nOwned process cleanup: '+cleanup_error
+  raise AssertionError(str(failure)+'\n'+details)from failure
+
 def run(package,result,browser=False):
  checks=[]
  with tempfile.TemporaryDirectory(prefix='Teams native ')as tmp:
   root=Path(tmp);bundle=root/'download';bundle.mkdir();extract(package,bundle);binary=next(p for p in bundle.rglob('acp-teams-adapter.exe' if os.name=='nt' else 'acp-teams-adapter')if p.is_file());binary.chmod(0o755);home=root/'connection café 雪'
   env={k:v for k,v in os.environ.items()if not k.upper().startswith(('TEAMS_','OPENAI_','ANTHROPIC_','AZURE_','GOOGLE_','AMPLIFIER_','NODE_','ACP_'))};env['PATH']=str(root/'no-tools')
   def start():
-   log=open(root/'server.log','ab');p=subprocess.Popen([str(binary),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env)
-   deadline=time.monotonic()+180
-   while time.monotonic()<deadline:
-    if p.poll() is not None:raise AssertionError((root/'server.log').read_text(encoding='utf8',errors='replace')[-2000:])
-    try:
-     settings=json.loads((home/'native.json').read_text(encoding='utf8'));base=settings['origin'];status,_,_=request(base,'/auth/session')
-     if status==200:return p,log,base
-    except(OSError,ValueError):pass
-    time.sleep(.1)
-   p.kill();p.wait();log.close();raise AssertionError('Native app did not become ready after 180 seconds: '+(root/'server.log').read_text(encoding='utf8',errors='replace')[-4000:])
+   log=open(root/'server.log','ab')
+   try:p=subprocess.Popen([str(binary),'--home',str(home),'--no-browser'],stdin=subprocess.DEVNULL,stdout=log,stderr=log,env=env)
+   except BaseException:
+    log.close();raise
+   return wait_started(p,log,root,home,bundle)
   def stop(p,log,base):
    p.terminate();p.wait(timeout=20);log.close()
    for _ in range(60):

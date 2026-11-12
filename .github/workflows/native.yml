@@ -56,6 +56,7 @@ jobs:
           workspaces: native-launcher -> ../target
       - run: npm ci --ignore-scripts
       - run: npm run check && npm test
+      - run: python tests/native-launch-fixture.py
       - run: cargo +1.93.0 fmt --manifest-path native-launcher/Cargo.toml --check
       - run: cargo +1.93.0 test --manifest-path native-launcher/Cargo.toml --locked
       - run: cargo +1.93.0 clippy --manifest-path native-launcher/Cargo.toml --locked --all-targets -- -D warnings
