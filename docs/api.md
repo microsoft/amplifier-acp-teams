@@ -1,6 +1,6 @@
 # Standalone management API
 
-Base `/api/v1`; every endpoint requires `Authorization: Bearer <control-token>`. The token is stored only in the installation’s private `secrets/control-token` file. The public SDK-authenticated Teams callback is a different boundary at `/api/messages`.
+Base `/api/v1`; endpoints require the native installation’s authenticated local browser session or `Authorization: Bearer <control-token>`. Native browser mutations also require their CSRF token. The token is stored only in the installation’s private `secrets/control-token` file. The public SDK-authenticated Teams callback is a different boundary at `/api/messages`.
 
 | Operation | Meaning |
 | --- | --- |
@@ -19,7 +19,8 @@ Base `/api/v1`; every endpoint requires `Authorization: Bearer <control-token>`.
 | `POST check` | ACP handshake and session creation while paused; no model prompt or Teams send |
 | `GET graph/status` | Per-target verification, sync, rate-limit and consent state |
 | `POST graph/sync` | Request a bounded sync while enabled; later newly observed messages may launch ordinary ACP work |
-| `GET manifest` | Registration-specific Teams app manifest |
+| `GET manifest` | Registration-specific Teams app manifest JSON |
+| `GET manifest.zip` | Download `teams-agent.zip` containing that manifest and both icons; no configuration or tenant change |
 | `POST views` | Create a dashboard view, returning its ID/revision/state |
 | `GET views/{id}` | Read that view |
 | `PUT views/{id}` | Replace state with its current revision |

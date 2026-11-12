@@ -31,6 +31,18 @@ failure preserves the unpublished stage and leaves existing installations alone.
 sessions stay in its installation; signing out only removes the browser session.
 No shared identity, provisioning service or global runtime is required.
 
+## Export the Teams app package
+
+After the installation owner has configured the bot client ID and public HTTPS
+origin, sign in and choose **Download Teams app package** in Overview. The download
+contains `manifest.json`, `color.png` and `outline.png`, using this installation's
+configured permissions. Incomplete registration shows an error without creating a
+package. This uses the bundled runtime; Python, npm and a source checkout are not
+needed. Your Teams administrator still reviews and installs the ZIP under the
+tenant's app policy. Downloading it does not register a bot, grant consent, expose
+a callback or connect an agent. [Teams setup](installation.md) describes those
+independent steps and the fixed private CLI paths for installation owners.
+
 ## Update or recover this connector
 
 Verify and open a newer complete native download. It prepares its exact launcher,

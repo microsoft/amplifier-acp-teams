@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve, join } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import {
   ensure,
   initialize,
@@ -12,6 +12,7 @@ import {
 import { serve } from "./server.js";
 import { check } from "./acp.js";
 import { manifest } from "./manifest.js";
+import { manifestPackage } from "./manifest-package.js";
 
 async function main() {
   const args = process.argv.slice(2),
@@ -80,6 +81,15 @@ async function main() {
   } else if (command === "manifest") {
     ensure(args.length === 0, "Unknown option");
     console.log(JSON.stringify(manifest(load(home)), null, 2));
+  } else if (command === "manifest-package") {
+    const output = take("--output");
+    ensure(
+      args.length === 0 && output,
+      "Choose --output for a new Teams ZIP file",
+    );
+    const bytes = manifestPackage(load(home));
+    writeFileSync(resolve(output), bytes, { flag: "wx", mode: 0o600 });
+    console.log("Teams package created: " + resolve(output));
   } else if (command === "serve") {
     ensure(args.length === 0, "Unknown option");
     const running = await serve(home);
@@ -99,7 +109,7 @@ async function main() {
       });
   } else
     console.log(
-      "acp-teams-adapter init|config|secret|check|manifest|serve --home <installation-folder>",
+      "acp-teams-adapter init|config|secret|check|manifest|manifest-package|serve --home <installation-folder>",
     );
 }
 main().catch((e) => {

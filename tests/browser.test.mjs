@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initialize } from "../dist/config.js";
+import { initialize, save } from "../dist/config.js";
 import { serve } from "../dist/server.js";
 
 test(
@@ -12,7 +12,10 @@ test(
   async () => {
     const { chromium } = await import(process.env.PLAYWRIGHT_MODULE);
     const home = mkdtempSync(join(tmpdir(), "teams-browser-"));
-    initialize(home);
+    const config = initialize(home);
+    config.teams.client_id = "22222222-2222-4222-8222-222222222222";
+    config.server.public_url = "https://teams.example.invalid";
+    save(home, config);
     const service = await serve(home);
     const url = "http://127.0.0.1:" + service.port,
       token = readFileSync(join(home, "secrets/control-token"), "utf8");
@@ -35,6 +38,12 @@ test(
         .getByRole("heading", { name: "Teams connection" })
         .first()
         .waitFor();
+      const download = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download Teams app package" }).click();
+      const exported = await download;
+      assert.equal(exported.suggestedFilename(), "teams-agent.zip");
+      const expectedPackage = await fetch(url + "/api/v1/manifest.zip", { headers: { authorization: "Bearer " + token } });
+      assert.deepEqual(readFileSync(await exported.path()), Buffer.from(await expectedPackage.arrayBuffer()));
       await page.locator("#page").selectOption("activity");
       await page.getByText("started", { exact: false }).first().waitFor();
       const view = service.store.db
