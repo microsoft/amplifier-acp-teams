@@ -1,11 +1,11 @@
 [package]
 name = "acp-teams-adapter"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 [dependencies]
-amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-constellation", rev = "774dcedfde21dfec133cd3c497fd6177e9cdfff6", features = ["local-auth"] }
+amplifier-native-platform = { git = "https://github.com/microsoft/amplifier-constellation", rev = "178aed21d183adbe95acff7c22e2adfd0da3d268", features = ["local-auth"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fs2 = "0.4"

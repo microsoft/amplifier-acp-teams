@@ -69,7 +69,9 @@ jobs:
       - name: Actual native launch, private account, restart and no developer tools
         run: |
           package=$(python -c 'import pathlib; print(next(p for p in pathlib.Path("native-dist").iterdir() if p.name.endswith((".tar.gz", ".zip"))))')
-          python tests/native-launch.py --package "$package" --result native-dist/launch-${{ matrix.target }}.json
+          startup=()
+          case "${{ runner.os }}" in Windows|macOS) startup=(--verify-startup);; esac
+          python tests/native-launch.py --package "$package" "${startup[@]}" --result native-dist/launch-${{ matrix.target }}.json
       - name: Actual native package update and failed-start recovery
         run: |
           package=$(python -c 'import pathlib; print(next(p for p in pathlib.Path("native-dist").iterdir() if p.name.endswith((".tar.gz", ".zip"))))')

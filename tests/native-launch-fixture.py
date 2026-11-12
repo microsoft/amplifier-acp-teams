@@ -1,11 +1,14 @@
 """Failure evidence and exact child/log cleanup; no app, tenant or model."""
 import importlib.util
+import base64
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 spec=importlib.util.spec_from_file_location('launch',Path(__file__).with_name('native-launch.py'))
 launch=importlib.util.module_from_spec(spec)
@@ -13,6 +16,51 @@ spec.loader.exec_module(launch)
 
 
 class FailureEvidence(unittest.TestCase):
+ def test_existing_startup_is_not_touched_by_fixture(self):
+  config=json.dumps({'id':'940a518b-6f5e-429b-a159-42fde1f3ed67'}).encode()
+  with mock.patch.object(launch,'observe_startup',return_value='existing'),mock.patch.object(launch,'request')as api:
+   with self.assertRaisesRegex(AssertionError,'must not replace'):
+    launch.exercise_startup('http://127.0.0.1:1',{},Path('/unused'),Path('/unused'),config,b'password',[])
+   api.assert_not_called()
+
+ def test_exported_account_name_requires_current_resolved_trigger_sid(self):
+  with tempfile.TemporaryDirectory(prefix='Teams task identity ')as directory:
+   home=Path(directory);executable=home/'adapter';executable.write_text('fixture')
+   ns='http://schemas.microsoft.com/windows/2004/02/mit/task'
+   def element(parent,name,text=None):
+    node=ET.SubElement(parent,'{'+ns+'}'+name);node.text=text;return node
+   task=ET.Element('{'+ns+'}Task');trigger=element(element(task,'Triggers'),'LogonTrigger')
+   owner=element(trigger,'UserId','MACHINE\\Renée 雪');element(trigger,'Enabled','true')
+   principal=element(element(task,'Principals'),'Principal');element(principal,'UserId','MACHINE\\Renée 雪');element(principal,'LogonType','InteractiveToken')
+   action=element(element(task,'Actions'),'Exec');element(action,'Command',str(executable));element(action,'Arguments',f'--home "{home}" serve')
+   value={'sid':'S-1-5-21-1234','principal_sid':'S-1-5-21-1234','trigger_sid':'S-1-5-21-1234'}
+   def rendered():return {**value,'xml':base64.b64encode(ET.tostring(task)).decode()}
+   self.assertTrue(launch.validate_windows_startup(rendered(),executable,home))
+   for wrong in ['S-1-5-18',None]:
+    value['trigger_sid']=wrong
+    with self.assertRaises(AssertionError):launch.validate_windows_startup(rendered(),executable,home)
+   value['trigger_sid']=value['sid'];value['principal_sid']='S-1-5-18'
+   with self.assertRaises(AssertionError):launch.validate_windows_startup(rendered(),executable,home)
+   value['principal_sid']=value['sid'];trigger.remove(owner)
+   with self.assertRaises(AssertionError):launch.validate_windows_startup(rendered(),executable,home)
+   # Missing owner is allowed only for cleanup of the exactly owned old shape.
+   self.assertTrue(launch.validate_windows_startup(rendered(),executable,home,False))
+
+ def test_startup_api_failure_is_preserved_and_only_owned_plist_is_removed(self):
+  with tempfile.TemporaryDirectory(prefix='Teams startup cleanup ')as directory:
+   root=Path(directory);home=root/'app';home.mkdir()
+   label='acp-teams-adapter-940a518b-6f5e-429b-a159-42fde1f3ed67'
+   folder=root/'Library/LaunchAgents';folder.mkdir(parents=True)
+   own=folder/(label+'.plist');own.write_text('owned fixture')
+   other=folder/'unrelated.plist';other.write_text('preserve')
+   config=json.dumps({'id':label.removeprefix('acp-teams-adapter-')}).encode()
+   with mock.patch.object(launch,'observe_startup',side_effect=[None,'owned-hash',None]),mock.patch.object(launch,'request',return_value=(500,{}, {'error':'original registration failure'})),mock.patch.object(Path,'home',return_value=root):
+    # This fixture uses the file cleanup path only, without an OS registration.
+    with mock.patch.object(launch.os,'name','posix'):
+     with self.assertRaisesRegex(AssertionError,'original registration failure'):
+      launch.exercise_startup('http://127.0.0.1:1',{},root,home,config,b'password',[])
+   self.assertFalse(own.exists());self.assertEqual(other.read_text(),'preserve')
+
  def test_exit_preserves_product_error_and_inventory_without_secret_bytes(self):
   with tempfile.TemporaryDirectory(prefix='Teams failure evidence ')as directory:
    root=Path(directory);bundle=root/'download';bundle.mkdir();home=root/'saved'
