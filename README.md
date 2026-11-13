@@ -43,9 +43,9 @@ separates installation work from Microsoft 365 approval. The connector does not
 provision a tenant, hosting infrastructure or an agent runtime.
 
 Each installation has its own folder, process, bot identity and work journal.
-Instance, other connectors and a fleet manager are optional peers. The packaged
-dashboard is development and administration access, not a settled product UX;
-the [management API](docs/api.md) exposes its controls independently.
+The Constellation Instance host, other connectors and a fleet manager are optional
+peers. The packaged dashboard is development and administration access, not a
+settled product UX; the [management API](docs/api.md) exposes its controls independently.
 
 ## Find the boundary for your work
 
@@ -57,6 +57,9 @@ the [management API](docs/api.md) exposes its controls independently.
 - **Check a change:** [validation](docs/validation.md). Local fixtures do not establish live tenant authorization, delivery or human interaction.
 
 ## Contributing
+
+Invited collaborators: follow [Join the work](https://github.com/microsoft/amplifier-constellation#join-the-work)
+within your agreed access and scope. The notice below covers general public intake.
 
 > [!NOTE]
 > This project is not currently accepting external contributions, but we're actively working toward opening this up. We value community input and look forward to collaborating in the future. For now, feel free to fork and experiment!
