@@ -2,8 +2,8 @@
 
 These are optional connector features. Existing installations keep both Graph and
 media disabled when reading an older configuration. All work still reaches the
-independently configured agent through ordinary ACP; no Agent Instance extension
-is required.
+independently configured agent through ordinary ACP; no Constellation Instance
+extension is required.
 
 ## Graph conversation ingestion
 

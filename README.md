@@ -6,11 +6,16 @@ Teams authorization separate from the local app account.
 
 Bring an independently configured agent into Microsoft Teams personal chats,
 group chats and channel threads. Teams remains the source of its conversations;
-the chosen ACP endpoint supplies the agent.
+the chosen ACP endpoint supplies the agent. This is the ecosystem’s
+[Connection](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/connection.md)
+into the platform’s own conversations and experience, independent of the agent’s
+internal architecture.
 
 Part of [Amplifier Constellation](https://github.com/microsoft/amplifier-constellation).
 Start with the [vision](docs/VISION.md) and [contract map](contracts/README.md)
 when shaping a capability or integrating another service.
+
+The supplied connector path:
 
 ```text
 Teams → Microsoft SDK authentication → conversation queue → ordinary ACP stdio

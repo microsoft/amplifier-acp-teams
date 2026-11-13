@@ -2,7 +2,9 @@
 
 For Teams installation owners, ACP endpoints and management clients. The promise:
 an independent agent can participate through Teams within its authenticated tenant,
-conversation and delivery boundaries.
+conversation and delivery boundaries. It implements the umbrella
+[Connection](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/connection.md)
+role; the contract below adds Teams-specific obligations.
 
 **Example:** A team invites an agent into a channel thread. The connector uses the
 validated Teams route for replies and only the approved resources for context.
@@ -51,8 +53,9 @@ media denial and owner questions. Check actual destinations and observed effects
 [Validation](../docs/validation.md) separates disposable checks from real tenant
 consent, delivery and human interaction.
 
-**Left open:** Product UX, agent engine and collaboration strategy. Current
-commercial-cloud registration scope and unsupported platform operations remain
+**Left open:** Product UX, agent internals and collaboration strategy. The supplied
+ACP session routing does not prescribe the agent’s internal workers or sessions.
+Current commercial-cloud registration scope and unsupported platform operations remain
 explicit in the technical references; this document does not expand them.
 
 <!-- Keep published section links useful. Exact detail is linked above. -->
