@@ -73,7 +73,7 @@ export function contextQuery(store: Store, c: Config, request: any) {
   ensure(
     (request.conversation_id === undefined ||
       request.conversation_id === m.conversation) &&
-      (request.thread_id === undefined || request.thread_id === ""),
+      (request.thread_id == null || request.thread_id === ""),
     "Source grant belongs to another conversation",
   );
   const binding = {

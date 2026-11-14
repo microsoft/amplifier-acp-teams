@@ -92,6 +92,7 @@ export function sourceProfile(init: any) {
     p?.version === 1 &&
     p.metadata === SOURCE_META &&
     p.ordinaryPrompts === true &&
+    p.promptRetry === "inspectOnly" &&
     p.workReferences === true &&
     p.receiptsMethod === SOURCE_METHOD
   );

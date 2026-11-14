@@ -84,7 +84,7 @@ under current configured scope; it does not claim a fresh Microsoft directory
 membership lookup. Configured removal/revision changes revoke it immediately.
 
 When the endpoint advertises Instance's `ordinaryPrompts` / `workReferences`
-source-delivery profile, actual prompts carry the stable job input ID and original
+source-delivery profile with `promptRetry: inspectOnly`, actual prompts carry the stable job input ID and original
 source revision/time. The optional context grant supplies the authenticated
 actor/audience binding required for work linkage. Without that configured binding,
 the receipt explicitly reports `audience_binding: unavailable`. After a terminal

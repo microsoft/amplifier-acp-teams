@@ -158,6 +158,15 @@ test("source grants reject forged, cross-room, changed actor, expired and revoke
     });
     assert.equal(read.messages[0].id, m.id);
     assert.equal(read.complete, false);
+    assert.equal(
+      contextQuery(store, c, {
+        ...request,
+        operation: "read",
+        conversation_id: "room",
+        thread_id: null,
+      }).messages[0].id,
+      m.id,
+    );
     store.db
       .prepare(
         "UPDATE jobs SET context_grant=json_set(context_grant,'$.expires',0) WHERE id=?",
@@ -191,7 +200,7 @@ for line in sys.stdin:
  r=json.loads(line);m=r.get('method');p=r.get('params',{});i=r.get('id')
  if m=='initialize':
   result={'protocolVersion':1,'agentCapabilities':{}}
-  if mode!='plain':result['_meta']={'io.github.bkrabach.agent-instance':{'inputContinuity':{'sourceDelivery':{'version':1,'metadata':'com.microsoft.amplifier.source-delivery','ordinaryPrompts':True,'workReferences':True,'receiptsMethod':'_amplifier/source_receipts'}}}}
+  if mode!='plain':result['_meta']={'io.github.bkrabach.agent-instance':{'inputContinuity':{'sourceDelivery':{'version':1,'metadata':'com.microsoft.amplifier.source-delivery','ordinaryPrompts':True,'promptRetry':'inspectOnly','workReferences':True,'receiptsMethod':'_amplifier/source_receipts'}}}}
  elif m=='session/new':
   if mode!='plain':
    grant=p['_meta']['io.github.bkrabach.conversation'];assert grant['provider_id'].startswith('teams:')
@@ -258,4 +267,27 @@ for line in sys.stdin:
       rmSync(home, { recursive: true, force: true });
     }
   }
+});
+
+import { sourceProfile } from "../dist/submissions.js";
+test("source profile requires inspect-only retry semantics", () => {
+  const p = {
+    version: 1,
+    metadata: "com.microsoft.amplifier.source-delivery",
+    ordinaryPrompts: true,
+    workReferences: true,
+    receiptsMethod: "_amplifier/source_receipts",
+  };
+  const init = {
+    _meta: {
+      "io.github.bkrabach.agent-instance": {
+        inputContinuity: { sourceDelivery: p },
+      },
+    },
+  };
+  assert.equal(sourceProfile(init), false);
+  p.promptRetry = "inspectOnly";
+  assert.equal(sourceProfile(init), true);
+  p.promptRetry = "retry";
+  assert.equal(sourceProfile(init), false);
 });
