@@ -5,6 +5,8 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensure, load, ready, readPrivate, save, validate } from "./config.js";
 import { Store } from "./store.js";
+import { inspectSubmissions } from "./submissions.js";
+import { contextQuery } from "./context.js";
 import { GraphClient, GraphPoller } from "./graph.js";
 import {
   hydrateActivity,
@@ -167,6 +169,14 @@ export async function serve(home: string) {
         "Unexpected browser origin",
       );
     }
+    if (path === "/api/v1/submissions/inspect" && req.method === "POST") {
+      json(res, 200, inspectSubmissions(store, config, await body(req)));
+      return;
+    }
+    if (path === "/context/v1/query" && req.method === "POST") {
+      json(res, 200, contextQuery(store, config, await body(req)));
+      return;
+    }
     if (path === "/api/v1/descriptor" && req.method === "GET") {
       json(res, 200, {
         kind: "acp-teams-adapter",
@@ -174,10 +184,27 @@ export async function serve(home: string) {
         id: config.id,
         api: "/api/v1",
         protocol: "ACP 1 over stdio",
+        submissions: {
+          inspect: "/api/v1/submissions/inspect",
+          version: 1,
+          max_sources: 16,
+          read_only: true,
+          work_state: "last_observed",
+          missing: "unknown",
+        },
+        context_provider: {
+          id: `teams:${config.id}`,
+          query: "/context/v1/query",
+          enabled: config.context.enabled,
+          standard_acp: false,
+          scope: "source_grant_only",
+          authorization: "retained_source_and_current_configured_scope",
+        },
         operations: [
           "config",
           "status",
           "activity",
+          "submissions/inspect",
           "conversations",
           "history",
           "permissions",
@@ -445,7 +472,9 @@ export async function serve(home: string) {
     }
     if (path === "/api/v1/manifest.zip" && req.method === "GET") {
       if (!config.teams.client_id || !config.server.public_url) {
-        json(res, 400, { error: "Set client ID and public HTTPS origin first" });
+        json(res, 400, {
+          error: "Set client ID and public HTTPS origin first",
+        });
         return;
       }
       const bytes = manifestPackage(config);
