@@ -26,9 +26,9 @@ A private control answer is not published as though a Teams participant said it.
 3. **Bind work to its Teams destination.** Tenant, conversation, thread and endpoint
    identify session routing. Reply only through the validated originating route;
    no cross-room send tool is implied. Loading depends on advertised capability.
-   [Session handling](../docs/session-handling.md) documents current replacement
-   fallback separately from the shared continuity promise; it is not proof that
-   an old engine session or its effects were recovered.
+   [Session handling](../docs/session-handling.md) documents retained bindings and
+   explicit replacement when loading is unavailable; a replacement is not proof
+   that an old engine session or its effects were recovered.
 4. **Represent actual delivery and content access.** Preserve queued, attempted,
    delivered and uncertain outcomes. A send already in flight may not be recalled;
    losing its result does not permit an automatic resend. Map files and media to
