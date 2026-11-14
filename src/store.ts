@@ -86,7 +86,11 @@ export class Store {
       .prepare("PRAGMA table_info(jobs)")
       .all()
       .map((row) => row.name);
-    for (const column of ["source_delivery", "context_grant"]) {
+    for (const column of [
+      "source_delivery",
+      "context_grant",
+      "session_transition",
+    ]) {
       if (!columns.includes(column))
         this.db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT`);
     }
@@ -104,7 +108,7 @@ export class Store {
   }
   recover() {
     this.db.exec(
-      "DELETE FROM sessions WHERE key IN (SELECT key FROM jobs WHERE status='running'); UPDATE jobs SET status='interrupted',note='Process stopped before completion; not replayed automatically' WHERE status IN ('running','pending'); UPDATE jobs SET status='uncertain',note='Process stopped during delivery; inspect Teams before retrying' WHERE status='sending'; UPDATE permissions SET status='cancelled' WHERE status='pending';",
+      "UPDATE jobs SET status='interrupted',note='Process stopped before completion; not replayed automatically' WHERE status IN ('running','pending'); UPDATE jobs SET status='uncertain',note='Process stopped during delivery; inspect Teams before retrying' WHERE status='sending'; UPDATE permissions SET status='cancelled' WHERE status='pending';",
     );
     this.db.exec(
       "UPDATE file_deliveries SET status='uncertain',file='{}' WHERE status='uploading'; UPDATE file_deliveries SET status='expired',file='{}' WHERE status='pending' AND expires < " +
@@ -270,6 +274,20 @@ export class Store {
         "INSERT INTO sessions VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET endpoint=excluded.endpoint,id=excluded.id",
       )
       .run(key, endpoint, id);
+  }
+  sessionTransition(
+    id: string,
+    transition: {
+      kind: "created" | "loaded" | "replacement" | "load_failed";
+      previous_session_id: string | null;
+      session_id: string | null;
+      reason: string;
+    },
+  ) {
+    this.db
+      .prepare("UPDATE jobs SET session_id=?,session_transition=? WHERE id=?")
+      .run(transition.session_id, JSON.stringify(transition), id);
+    this.audit("session_transition", { job: id, ...transition });
   }
   forget(key: string) {
     this.db.prepare("DELETE FROM sessions WHERE key=?").run(key);

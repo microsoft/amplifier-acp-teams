@@ -37,7 +37,7 @@ export function inspectSubmissions(store: Store, c: Config, request: any) {
     );
     const rows = store.db
       .prepare(
-        "SELECT id,message,status,time,receipt,source_delivery FROM jobs WHERE json_extract(message,'$.tenant')=? AND json_extract(message,'$.conversation')=? AND json_extract(message,'$.id')=? AND json_extract(message,'$.sender')=? ORDER BY time,rowid LIMIT 65",
+        "SELECT id,message,status,time,receipt,source_delivery,session_id,session_transition FROM jobs WHERE json_extract(message,'$.tenant')=? AND json_extract(message,'$.conversation')=? AND json_extract(message,'$.id')=? AND json_extract(message,'$.sender')=? ORDER BY time,rowid LIMIT 65",
       )
       .all(source.tenant, source.conversation, source.id, source.sender);
     const attempts = [];
@@ -47,6 +47,12 @@ export function inspectSubmissions(store: Store, c: Config, request: any) {
       attempts.push({
         job_id: row.id,
         processing: { state: row.status, created_at: row.time },
+        session: {
+          id: row.session_id,
+          transition: row.session_transition
+            ? JSON.parse(row.session_transition as string)
+            : null,
+        },
         publication: {
           state:
             row.status === "sent"

@@ -59,6 +59,9 @@ Teams publication and last observed Instance receipts separately. Every source
 field and current configured conversation scope must match. Missing records stay
 unknown, no source text is returned, and inspection never prompts or resends.
 An original message can have several attempts and several work references.
+Each attempt also exposes its recorded session ID and `session.transition`:
+creation, successful load, unsupported-load replacement, or failed load. Previous
+and current IDs remain distinct; legacy missing transitions are `null`.
 
 The connector's opaque revision is retained when present; otherwise it is derived
 from the original stored message's ID, time, text and attachment metadata. History

@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { ensure, type Config } from "./config.js";
 import { Store, type Inbound, type Job } from "./store.js";
 import { type OutputFile } from "./media.js";
-import { AgentAuthenticationRequired, runTurn } from "./acp.js";
+import {
+  AgentAuthenticationRequired,
+  SavedSessionUnavailable,
+  runTurn,
+} from "./acp.js";
 
 export function conversationKey(tenant: string, conversation: string) {
   return createHash("sha256")
@@ -213,11 +217,16 @@ export class Runtime {
         signal.aborted ? "cancelled" : "failed",
         signal.aborted
           ? "Work stopped"
-          : error instanceof AgentAuthenticationRequired
+          : error instanceof AgentAuthenticationRequired ||
+              error instanceof SavedSessionUnavailable
             ? error.message
-            : "ACP work failed; no reply posted",
+            : "ACP work failed; no reply posted. Existing sessions and uncertain outcomes are retained; input is not automatically replayed.",
       );
-      if (!(error instanceof AgentAuthenticationRequired))
+      if (
+        signal.aborted ||
+        !this.config().enabled ||
+        !allowed(this.config(), job.message)
+      )
         this.store.forget(job.message.key);
     }
   }
