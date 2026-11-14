@@ -2,7 +2,7 @@ import { Questions } from "./questions.js";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chmodSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Config } from "./config.js";
 import { ensure, privateDir } from "./config.js";
 
@@ -12,13 +12,33 @@ export interface Attachment {
   data?: string;
   note?: string;
 }
+export function sourceRevision(m: Inbound): string {
+  return (
+    m.revision ??
+    createHash("sha256")
+      .update(
+        JSON.stringify([
+          m.id,
+          m.time,
+          m.text,
+          m.attachments.map(({ name, content_type }) => ({
+            name,
+            content_type,
+          })),
+        ]),
+      )
+      .digest("hex")
+  );
+}
 export function projection(message: Inbound): Inbound {
   return {
     ...message,
+    revision: sourceRevision(message),
     attachments: message.attachments.map(({ data, ...metadata }) => metadata),
   };
 }
 export interface Inbound {
+  revision?: string;
   id: string;
   key: string;
   tenant: string;
@@ -62,6 +82,14 @@ export class Store {
       CREATE TABLE IF NOT EXISTS permissions(id TEXT PRIMARY KEY,job TEXT NOT NULL,request TEXT NOT NULL,expires INTEGER NOT NULL,decision TEXT,status TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS views(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,state TEXT NOT NULL);
     `);
+    const columns = this.db
+      .prepare("PRAGMA table_info(jobs)")
+      .all()
+      .map((row) => row.name);
+    for (const column of ["source_delivery", "context_grant"]) {
+      if (!columns.includes(column))
+        this.db.exec(`ALTER TABLE jobs ADD COLUMN ${column} TEXT`);
+    }
   }
   close() {
     this.db.close();

@@ -31,6 +31,7 @@ export interface Config {
     conversations: string[];
     participation: "mentions" | "ambient";
   };
+  context: { enabled: boolean };
   graph: {
     enabled: boolean;
     poll_seconds: number;
@@ -73,6 +74,7 @@ export function defaults(): Config {
       conversations: [],
       participation: "mentions",
     },
+    context: { enabled: false },
     graph: {
       enabled: false,
       poll_seconds: 30,
@@ -108,6 +110,7 @@ const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function validate(value: unknown): Config {
   const c = value as Config;
   if (c && c.schema === 1) {
+    c.context ??= defaults().context;
     c.graph ??= defaults().graph;
     c.media ??= defaults().media;
   }
@@ -324,7 +327,13 @@ export function validate(value: unknown): Config {
       "Unknown configuration field",
     );
   }
+  ensure(
+    c.context && typeof c.context.enabled === "boolean",
+    "Invalid context setting",
+  );
+  keys(c.context, ["enabled"]);
   keys(c, [
+    "context",
     "schema",
     "id",
     "label",
