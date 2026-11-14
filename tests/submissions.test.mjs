@@ -211,7 +211,7 @@ for line in sys.stdin:
  elif m=='session/prompt':
   metadata=p.get('_meta',{}).get('com.microsoft.amplifier.source-delivery');assert (metadata is not None)==(mode!='plain')
   if metadata:assert metadata['sources'][0]['revision']=='revision-one'
-  with (root/'prompts').open('a') as f:f.write('1\\n')
+  with (root/'prompts').open('ab') as f:f.write(b'1\\n')
   if mode=='lost':sys.exit(0)
   if mode=='error':out({'id':i,'error':{'code':-32603,'message':'fixture failure'}});continue
   out({'method':'session/update','params':{'sessionId':'source-session','update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'Inspected.'}}}});result={'stopReason':'end_turn'}
