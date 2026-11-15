@@ -31,6 +31,27 @@ own process, bot identity and work records; other Constellation services are opt
 - [Management API](docs/api.md) and [session recovery](docs/session-handling.md)
 - [Contributor entry](AGENTS.md)
 
+
+<!-- ecosystem-map:start -->
+## Where this fits
+
+Connects existing ACP agents to Teams-owned chats and threads through its own authorized installation.
+
+Roles: Connection. Supports: Conversation, Experience.
+
+![Ecosystem roles and component relationships](docs/ecosystem-map.svg)
+
+[Open the map](docs/ecosystem-map.svg) · [Product overview](https://microsoft.github.io/amplifier-constellation/projects/amplifier-acp-teams/) · [Map guide](https://github.com/microsoft/amplifier-constellation/blob/main/docs/ecosystem-maps.md)
+
+<details>
+<summary>The five shared building blocks</summary>
+
+[![Experience, Conversation, Agent Instance, Connection and Tool](https://raw.githubusercontent.com/microsoft/amplifier-constellation/main/site/assets/art/building-blocks.png)](https://microsoft.github.io/amplifier-constellation/)
+
+</details>
+
+<!-- ecosystem-map:end -->
+
 ## Contributing
 
 Invited collaborators: follow [Join the work](https://github.com/microsoft/amplifier-constellation#join-the-work)

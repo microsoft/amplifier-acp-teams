@@ -1,0 +1,107 @@
+{
+  "audience": "Teams users and Microsoft 365 administrators",
+  "citations": [
+    {
+      "path": "README.md",
+      "ref": "ac7da0c25160eb397470689c9cb690fbf0e76b8c",
+      "sha256": "813ddec676c441015425595506b6e6024587ba25ccc1a7a179f6380c662bbfab",
+      "url": "https://github.com/microsoft/amplifier-acp-teams/blob/ac7da0c25160eb397470689c9cb690fbf0e76b8c/README.md"
+    },
+    {
+      "path": "docs/api.md",
+      "ref": "ac7da0c25160eb397470689c9cb690fbf0e76b8c",
+      "sha256": "bbe41d9520110d849fb2ba5840858958f2e9ca85ddc25d0597dff1f12d817265",
+      "url": "https://github.com/microsoft/amplifier-acp-teams/blob/ac7da0c25160eb397470689c9cb690fbf0e76b8c/docs/api.md"
+    },
+    {
+      "path": "docs/session-handling.md",
+      "ref": "ac7da0c25160eb397470689c9cb690fbf0e76b8c",
+      "sha256": "1dbbae01f06fcaa990797a81a05f39793e53d1b13c4648688472682fc428817b",
+      "url": "https://github.com/microsoft/amplifier-acp-teams/blob/ac7da0c25160eb397470689c9cb690fbf0e76b8c/docs/session-handling.md"
+    }
+  ],
+  "display_name": "Teams Connector for Amplifier",
+  "edges": [
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "routing"
+    },
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "records"
+    },
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "setup"
+    },
+    {
+      "from": "self",
+      "relation": "integrates",
+      "to": "teams"
+    },
+    {
+      "from": "self",
+      "relation": "uses",
+      "to": "agent"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "self",
+      "kind": "self",
+      "label": "Teams Connector for Amplifier",
+      "repository": "microsoft/amplifier-acp-teams"
+    },
+    {
+      "id": "routing",
+      "kind": "internal",
+      "label": "Tenant, chat and thread routing"
+    },
+    {
+      "id": "records",
+      "kind": "internal",
+      "label": "Jobs, delivery and session bindings"
+    },
+    {
+      "id": "setup",
+      "kind": "internal",
+      "label": "Local setup and management"
+    },
+    {
+      "id": "teams",
+      "kind": "external",
+      "label": "Teams platform and conversations"
+    },
+    {
+      "id": "agent",
+      "kind": "external",
+      "label": "ACP agent endpoint"
+    }
+  ],
+  "notes": [
+    "Teams owns the source conversation and presentation; the connector does not provision a tenant, agent or callback host.",
+    "Bot identity, platform permissions and ACP engine accounts retain their separate owners.",
+    "No Tool conformance claim is inferred from administrative API routes."
+  ],
+  "page_kind": "user-facing connector",
+  "purpose": "Bring an existing ACP agent into Teams conversations through an independently managed connector.",
+  "ref": "ac7da0c25160eb397470689c9cb690fbf0e76b8c",
+  "repository": "microsoft/amplifier-acp-teams",
+  "roles": [
+    "Connection"
+  ],
+  "start_cta": {
+    "basis": "Existing approved README route; target release assets/availability not freshly audited in this plan.",
+    "label": "Check Teams setup requirements",
+    "url": "https://github.com/microsoft/amplifier-acp-teams/blob/main/docs/tenant-permissions.md"
+  },
+  "summary": "Connects existing ACP agents to Teams-owned chats and threads through its own authorized installation.",
+  "supports_roles": [
+    "Conversation",
+    "Experience"
+  ],
+  "visibility": "public"
+}
