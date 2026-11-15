@@ -1,60 +1,35 @@
-# ACP Teams Adapter
+# Teams Connector for Amplifier
 
-Native package setup for Windows, macOS and Linux is described in
-[Native installation](docs/native-installation.md). It starts paused and keeps
-Teams authorization separate from the local app account.
-
-Bring an independently configured agent into Microsoft Teams personal chats,
-group chats and channel threads. Teams remains the source of its conversations;
-the chosen ACP endpoint supplies the agent. This is the ecosystem’s
-[Connection](https://github.com/microsoft/amplifier-constellation/blob/main/contracts/connection.md)
-into the platform’s own conversations and experience, independent of the agent’s
-internal architecture.
+Bring an existing agent into Microsoft Teams personal chats, group chats and
+channel threads. Teams holds the conversations; an ACP-compatible endpoint
+supplies the agent.
 
 Part of [Amplifier Constellation](https://github.com/microsoft/amplifier-constellation).
-Start with the [vision](docs/VISION.md) and [contract map](contracts/README.md)
-when shaping a capability or integrating another service.
 
-The supplied connector path:
+## Get started
 
-```text
-Teams → Microsoft SDK authentication → conversation queue → ordinary ACP stdio
-                                                ↓
-                                    confirmed Teams delivery
-```
+You need an installed, authorized ACP agent and the Microsoft 365 permissions
+needed to configure a Teams app. Tenant approval is separate from installing this
+connector; review the [tenant requirements](docs/tenant-permissions.md) first.
 
-## Start here
+1. Download the matching [Teams Connector release](https://github.com/microsoft/amplifier-acp-teams/releases)
+   for Windows, macOS or Linux, and extract the complete package.
+2. Open **Teams Connector** and create the local account.
+3. Follow [native setup](docs/native-installation.md) to connect the agent and
+   configure the Teams app, credentials and callback.
+4. Complete tenant authorization before enabling the connection. Setup starts paused.
 
-Download the matching native package from [Releases](https://github.com/microsoft/amplifier-acp-teams/releases), extract it, and open **Teams Connector**. It includes Node and its dependencies. [Native installation](docs/native-installation.md) covers the local account, setup, and updates; Teams tenant approval remains separate.
+The package includes Node and its dependencies. It does not provision an agent,
+a Microsoft 365 tenant or callback hosting. Each connector installation keeps its
+own process, bot identity and work records; other Constellation services are optional.
 
-### Build from source
+## Help and integration
 
-The Linux source installer below is for contributors and administrators. It is not a prerequisite for the native app.
-
-```sh
-git clone https://github.com/microsoft/amplifier-acp-teams.git
-cd amplifier-acp-teams
-./install.sh "$HOME/.local/share/acp-teams-adapter/my-agent"
-```
-
-Follow [installation](docs/installation.md) for the ACP endpoint, private
-credentials, callback and app setup. [Tenant permissions](docs/tenant-permissions.md)
-separates installation work from Microsoft 365 approval. The connector does not
-provision a tenant, hosting infrastructure or an agent runtime.
-
-Each installation has its own folder, process, bot identity and work journal.
-The Constellation Instance host, other connectors and a fleet manager are optional
-peers. The packaged dashboard is development and administration access, not a
-settled product UX; the [management API](docs/api.md) exposes its controls independently.
-
-## Find the boundary for your work
-
-- **Bring an idea:** [vision](docs/VISION.md), [contract map](contracts/README.md), and [working instructions](AGENTS.md).
-- **Design Teams behavior:** [connector boundary](contracts/connector.md).
-- **Integrate controls:** [management API](docs/api.md).
-- **Read or transfer content:** [Graph and media](docs/graph-and-media.md).
-- **Inspect session recovery:** [current session handling](docs/session-handling.md).
-- **Check a change:** [validation](docs/validation.md). Local fixtures do not establish live tenant authorization, delivery or human interaction.
+- [Native installation and updates](docs/native-installation.md)
+- [Source and server installation](docs/installation.md)
+- [Tenant permissions](docs/tenant-permissions.md) and [Graph/media access](docs/graph-and-media.md)
+- [Management API](docs/api.md) and [session recovery](docs/session-handling.md)
+- [Contributor entry](AGENTS.md)
 
 ## Contributing
 
