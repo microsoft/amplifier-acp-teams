@@ -180,7 +180,7 @@ export async function serve(home: string) {
     if (path === "/api/v1/descriptor" && req.method === "GET") {
       json(res, 200, {
         kind: "acp-teams-adapter",
-        version: "0.5.2",
+        version: "0.5.3",
         id: config.id,
         api: "/api/v1",
         protocol: "ACP 1 over stdio",
@@ -328,7 +328,7 @@ export async function serve(home: string) {
     if (path === "/api/v1/status" && req.method === "GET") {
       json(res, 200, {
         id: config.id,
-        version: "0.5.2",
+        version: "0.5.3",
         pid: process.pid,
         launcher_pid: Number(process.env.ACP_TEAMS_LAUNCHER_PID) || null,
         label: config.label,

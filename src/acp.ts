@@ -232,7 +232,7 @@ export class AcpClient {
   async initialize(interactive = false) {
     const init = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "acp-teams-adapter", version: "0.5.2" },
+      clientInfo: { name: "acp-teams-adapter", version: "0.5.3" },
       clientCapabilities: interactive
         ? { elicitation: { form: {}, url: {} } }
         : {},
